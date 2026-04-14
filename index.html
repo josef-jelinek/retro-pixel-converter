@@ -1,0 +1,1374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ZX Spectrum Image Converter</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #1a1a2e;
+  --surface: #16213e;
+  --surface2: #0f3460;
+  --accent: #e94560;
+  --accent2: #00cdcd;
+  --text: #eee;
+  --text-dim: #999;
+  --border: #333;
+  --radius: 6px;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+header {
+  background: var(--surface);
+  border-bottom: 2px solid var(--accent);
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+header h1 {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #D0121B;
+}
+
+header span {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.app {
+  display: flex;
+  height: calc(100vh - 52px);
+}
+
+.sidebar {
+  width: 280px;
+  min-width: 280px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sidebar h3 {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--accent2);
+  margin-bottom: 4px;
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.control-group label {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+select, input[type="range"] {
+  width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  font-size: 0.85rem;
+}
+
+select:focus, input:focus {
+  outline: 1px solid var(--accent2);
+  border-color: var(--accent2);
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  height: 6px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: var(--border);
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent2);
+  cursor: pointer;
+}
+
+.range-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.range-row input { flex: 1; }
+.range-val {
+  font-size: 0.75rem;
+  color: var(--accent2);
+  min-width: 32px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.checkbox-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent2);
+}
+
+.divider {
+  height: 1px;
+  background: var(--border);
+}
+
+button {
+  padding: 8px 14px;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+button:hover { opacity: 0.85; }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--accent);
+  color: white;
+}
+
+.btn-secondary {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.btn-accent {
+  background: var(--accent2);
+  color: var(--bg);
+}
+
+.export-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.export-row {
+  display: flex;
+  gap: 4px;
+}
+
+.export-row button {
+  flex: 1;
+  font-size: 0.75rem;
+  padding: 6px 4px;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.drop-zone {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  margin: 16px;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.drop-zone.active {
+  border-color: var(--accent2);
+  background: rgba(0, 205, 205, 0.05);
+}
+
+.drop-zone.hidden { display: none; }
+
+.drop-zone p {
+  color: var(--text-dim);
+  font-size: 0.95rem;
+}
+
+.drop-zone .or {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+#fileInput { display: none; }
+
+.preview-area {
+  flex: 1;
+  display: none;
+  flex-direction: column;
+  padding: 16px;
+  gap: 12px;
+  overflow: auto;
+}
+
+.preview-area.visible {
+  display: flex;
+}
+
+.preview-labels {
+  display: flex;
+  gap: 16px;
+}
+
+.preview-labels span {
+  flex: 1;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.canvas-row {
+  display: flex;
+  gap: 16px;
+  flex: 1;
+  min-height: 0;
+}
+
+.canvas-wrap {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow: auto;
+  background: #000;
+  border-radius: var(--radius);
+}
+
+.canvas-wrap canvas {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.status-bar {
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 6px 16px;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  display: flex;
+  justify-content: space-between;
+}
+
+/* Palette reference strip */
+.palette-strip {
+  display: flex;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+
+.palette-strip .swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>ZX Spectrum Image Converter</h1>
+  <span>SCREEN$ / TAP exporter for ZX Spectrum</span>
+</header>
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="control-group">
+      <h3>Dithering</h3>
+      <select id="ditherMode">
+        <option value="floyd-steinberg">Floyd-Steinberg</option>
+        <option value="atkinson">Atkinson</option>
+        <option value="stucki">Stucki</option>
+        <option value="jarvis">Jarvis-Judice-Ninke</option>
+        <option value="burkes">Burkes</option>
+        <option value="sierra-lite">Sierra Lite</option>
+        <option value="ordered">Ordered (Bayer 4x4)</option>
+        <option value="blue-noise">Blue noise</option>
+        <option value="yliluoma">Yliluoma (palette-aware)</option>
+        <option value="halftone">Halftone (clustered dot)</option>
+        <option value="none">None</option>
+      </select>
+    </div>
+
+    <div class="control-group">
+      <h3>Color Strategy</h3>
+      <select id="colorStrategy">
+        <option value="per-block">Per-block best-fit</option>
+        <option value="global">Global pre-quantize + per-block</option>
+      </select>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="control-group">
+      <h3>Adjustments</h3>
+      <label>Brightness</label>
+      <div class="range-row">
+        <input type="range" id="brightness" min="-100" max="100" value="0">
+        <span class="range-val" id="brightnessVal">0</span>
+      </div>
+      <label>Contrast</label>
+      <div class="range-row">
+        <input type="range" id="contrast" min="-100" max="100" value="0">
+        <span class="range-val" id="contrastVal">0</span>
+      </div>
+      <label>Saturation</label>
+      <div class="range-row">
+        <input type="range" id="saturation" min="0" max="200" value="100">
+        <span class="range-val" id="saturationVal">100</span>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="control-group">
+      <label class="checkbox-row">
+        <input type="checkbox" id="lockAspect" checked>
+        Lock crop to 4:3
+      </label>
+      <label class="checkbox-row">
+        <input type="checkbox" id="showGrid">
+        Show attribute grid
+      </label>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="export-group">
+      <button class="btn-secondary" id="loadNewBtn">Load new image…</button>
+    </div>
+
+    <div class="export-group">
+      <h3>Export Binary</h3>
+      <div class="export-row">
+        <button class="btn-primary" id="exportScr" disabled>Download .SCR</button>
+        <button class="btn-accent" id="exportTap" disabled>Download .TAP</button>
+      </div>
+    </div>
+
+    <div class="export-group">
+      <h3>Export Image (PNG)</h3>
+      <div class="export-row">
+        <button class="btn-secondary" id="exportPng1x" disabled>1x</button>
+        <button class="btn-secondary" id="exportPng2x" disabled>2x</button>
+        <button class="btn-secondary" id="exportPng4x" disabled>4x</button>
+      </div>
+    </div>
+
+    <div class="export-group">
+      <h3>Export Image (JPG)</h3>
+      <div class="export-row">
+        <button class="btn-secondary" id="exportJpg1x" disabled>1x</button>
+        <button class="btn-secondary" id="exportJpg2x" disabled>2x</button>
+        <button class="btn-secondary" id="exportJpg4x" disabled>4x</button>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+    <div class="control-group">
+      <h3>Spectrum Palette</h3>
+      <div class="palette-strip" id="paletteStrip"></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="drop-zone" id="dropZone">
+      <p>Drop an image here</p>
+      <span class="or">or</span>
+      <button class="btn-primary" id="browseBtn">Browse Files</button>
+      <input type="file" id="fileInput" accept="image/png,image/jpeg,image/gif,image/webp">
+    </div>
+
+    <div class="preview-area" id="previewArea">
+      <div class="preview-labels">
+        <span>Source — drag to crop</span>
+        <span>Converted</span>
+      </div>
+      <div class="canvas-row">
+        <div class="canvas-wrap">
+          <canvas id="originalCanvas"></canvas>
+        </div>
+        <div class="canvas-wrap">
+          <canvas id="convertedCanvas"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="status-bar">
+      <span id="statusText">Ready. Load an image to begin.</span>
+      <span id="statusSize"></span>
+    </div>
+  </main>
+</div>
+
+<script>
+// ============================================================
+// ZX Spectrum / Timex 2068 SCREEN$ Image Converter
+// ============================================================
+
+(() => {
+'use strict';
+
+// --- ZX Spectrum Color Palette ---
+const PALETTE_NORMAL = [
+  [0, 0, 0],       // 0 black
+  [0, 0, 205],     // 1 blue
+  [205, 0, 0],     // 2 red
+  [205, 0, 205],   // 3 magenta
+  [0, 205, 0],     // 4 green
+  [0, 205, 205],   // 5 cyan
+  [205, 205, 0],   // 6 yellow
+  [205, 205, 205], // 7 white
+];
+
+const PALETTE_BRIGHT = [
+  [0, 0, 0],       // 0 black (same)
+  [0, 0, 255],     // 1 blue
+  [255, 0, 0],     // 2 red
+  [255, 0, 255],   // 3 magenta
+  [0, 255, 0],     // 4 green
+  [0, 255, 255],   // 5 cyan
+  [255, 255, 0],   // 6 yellow
+  [255, 255, 255], // 7 white
+];
+
+// All 15 unique Spectrum colors (both brightness levels, deduplicated black)
+const ALL_COLORS = [];
+for (let i = 0; i < 8; i++) ALL_COLORS.push({ rgb: PALETTE_NORMAL[i], bright: 0, index: i });
+for (let i = 1; i < 8; i++) ALL_COLORS.push({ rgb: PALETTE_BRIGHT[i], bright: 1, index: i });
+
+// --- Perceptual Color Distance (weighted Euclidean) ---
+function colorDist(a, b) {
+  const dr = a[0] - b[0];
+  const dg = a[1] - b[1];
+  const db = a[2] - b[2];
+  // Weight green most, red next, blue least (human perception)
+  return 2 * dr * dr + 4 * dg * dg + 3 * db * db;
+}
+
+function nearestSpectrumColor(r, g, b) {
+  let best = 0, bestDist = Infinity;
+  const px = [r, g, b];
+  for (let i = 0; i < ALL_COLORS.length; i++) {
+    const d = colorDist(px, ALL_COLORS[i].rgb);
+    if (d < bestDist) { bestDist = d; best = i; }
+  }
+  return ALL_COLORS[best];
+}
+
+// --- Bayer 4x4 ordered dither threshold matrix ---
+const BAYER4 = [
+  [ 0,  8,  2, 10],
+  [12,  4, 14,  6],
+  [ 3, 11,  1,  9],
+  [15,  7, 13,  5],
+];
+// Normalized to [0, 1)
+const BAYER4_01 = BAYER4.map(row => row.map(v => (v + 0.5) / 16));
+
+// --- Clustered-dot 8x8 halftone matrix ---
+// Dots grow outward from cluster centers (newspaper/magazine halftone look)
+const CLUSTERED8 = [
+  [24, 10, 12, 26, 35, 47, 49, 37],
+  [ 8,  0,  2, 14, 45, 59, 61, 51],
+  [22,  6,  4, 16, 43, 57, 63, 53],
+  [30, 20, 18, 28, 33, 41, 55, 39],
+  [34, 46, 48, 36, 25, 11, 13, 27],
+  [44, 58, 60, 50,  9,  1,  3, 15],
+  [42, 56, 62, 52, 23,  7,  5, 17],
+  [32, 40, 54, 38, 31, 21, 19, 29],
+];
+const CLUSTERED8_01 = CLUSTERED8.map(row => row.map(v => (v + 0.5) / 64));
+
+// --- Threshold-based dither helpers ---
+// Interleaved Gradient Noise (Jorge Jimenez) — good blue-noise-like spectral properties
+function blueNoiseThreshold(x, y) {
+  const v = (52.9829189 * ((0.06711056 * x + 0.00583715 * y) % 1)) % 1;
+  return v < 0 ? v + 1 : v;
+}
+
+function getThreshold(mode, x, y) {
+  if (mode === 'ordered' || mode === 'yliluoma') return BAYER4_01[y & 3][x & 3];
+  if (mode === 'halftone') return CLUSTERED8_01[y & 7][x & 7];
+  if (mode === 'blue-noise') return blueNoiseThreshold(x, y);
+  return 0.5;
+}
+
+function isThresholdDither(mode) {
+  return mode === 'ordered' || mode === 'yliluoma' ||
+         mode === 'halftone' || mode === 'blue-noise';
+}
+
+// Blend factor: what fraction of color1 (vs color0) best approximates (r,g,b)?
+// Yliluoma mode uses linear projection onto the color0->color1 line for better accuracy.
+function blendFactor(r, g, b, c0, c1, mode) {
+  if (mode === 'yliluoma') {
+    const dr = c1[0] - c0[0], dg = c1[1] - c0[1], db = c1[2] - c0[2];
+    const denom = dr * dr + dg * dg + db * db;
+    if (denom < 1e-6) return 0.5;
+    let t = ((r - c0[0]) * dr + (g - c0[1]) * dg + (b - c0[2]) * db) / denom;
+    if (t < 0) t = 0; else if (t > 1) t = 1;
+    return t;
+  }
+  const d0 = colorDist([r, g, b], c0);
+  const d1 = colorDist([r, g, b], c1);
+  const total = d0 + d1;
+  return total > 0 ? d0 / total : 0.5;
+}
+
+// --- State ---
+let sourceImage = null;       // HTMLImageElement
+let convertedPixels = null;   // Float64Array [r,g,b,...] of converted image (native res)
+let convertedAttrs = null;    // attribute bytes
+let screenWidth = 256;
+let screenHeight = 192;
+let scrBytes = null;          // Uint8Array of SCREEN$ data
+let cropRect = null;          // {x, y, w, h} in source image coords
+let cropAspectLocked = true;
+let cropDisplayScale = 1;     // source px -> display px
+let dragState = null;         // active drag info
+
+// DOM elements
+const $ = id => document.getElementById(id);
+const dropZone = $('dropZone');
+const fileInput = $('fileInput');
+const previewArea = $('previewArea');
+const originalCanvas = $('originalCanvas');
+const convertedCanvas = $('convertedCanvas');
+const statusText = $('statusText');
+const statusSize = $('statusSize');
+
+// --- Init palette strip ---
+function initPaletteStrip() {
+  const strip = $('paletteStrip');
+  const all = [...PALETTE_NORMAL, ...PALETTE_BRIGHT.slice(1)];
+  for (const c of all) {
+    const d = document.createElement('div');
+    d.className = 'swatch';
+    d.style.background = `rgb(${c[0]},${c[1]},${c[2]})`;
+    d.title = `RGB(${c[0]}, ${c[1]}, ${c[2]})`;
+    strip.appendChild(d);
+  }
+}
+initPaletteStrip();
+
+// --- File handling ---
+$('browseBtn').addEventListener('click', () => fileInput.click());
+$('loadNewBtn').addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => { if (e.target.files[0]) loadImage(e.target.files[0]); });
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('active'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('active'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('active');
+  const file = e.dataTransfer.files[0];
+  if (file && file.type.startsWith('image/')) loadImage(file);
+});
+
+function loadImage(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = new Image();
+    img.onload = () => {
+      sourceImage = img;
+      cropRect = { x: 0, y: 0, w: img.width, h: img.height };
+      statusText.textContent = `Loaded: ${img.width}x${img.height}`;
+      dropZone.classList.add('hidden');
+      previewArea.classList.add('visible');
+      renderCropOverlay();
+      convert();
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+// --- Crop overlay rendering ---
+function renderCropOverlay() {
+  if (!sourceImage || !cropRect) return;
+  const canvas = originalCanvas;
+  const wrap = canvas.parentElement;
+  const padding = 16;
+  const maxW = Math.max(50, wrap.clientWidth - padding);
+  const maxH = Math.max(50, wrap.clientHeight - padding);
+  const scale = Math.min(maxW / sourceImage.width, maxH / sourceImage.height);
+  cropDisplayScale = scale;
+  canvas.width = Math.round(sourceImage.width * scale);
+  canvas.height = Math.round(sourceImage.height * scale);
+
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(sourceImage, 0, 0, canvas.width, canvas.height);
+
+  const cx = cropRect.x * scale;
+  const cy = cropRect.y * scale;
+  const cw = cropRect.w * scale;
+  const ch = cropRect.h * scale;
+
+  // Darken outside crop
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+  ctx.fillRect(0, 0, canvas.width, cy);
+  ctx.fillRect(0, cy, cx, ch);
+  ctx.fillRect(cx + cw, cy, canvas.width - cx - cw, ch);
+  ctx.fillRect(0, cy + ch, canvas.width, canvas.height - cy - ch);
+
+  // Crop border
+  ctx.strokeStyle = '#00cdcd';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(cx + 0.5, cy + 0.5, Math.max(0, cw - 1), Math.max(0, ch - 1));
+
+  // Corner handles
+  ctx.fillStyle = '#00cdcd';
+  const hs = 8;
+  for (const [hx, hy] of [[cx, cy], [cx + cw, cy], [cx, cy + ch], [cx + cw, cy + ch]]) {
+    ctx.fillRect(hx - hs / 2, hy - hs / 2, hs, hs);
+  }
+}
+
+// --- Crop interaction ---
+function canvasCoords(e) {
+  const rect = originalCanvas.getBoundingClientRect();
+  return {
+    x: (e.clientX - rect.left) * (originalCanvas.width / rect.width),
+    y: (e.clientY - rect.top) * (originalCanvas.height / rect.height),
+  };
+}
+
+function getHitTarget(mx, my) {
+  if (!cropRect) return null;
+  const s = cropDisplayScale;
+  const cx = cropRect.x * s, cy = cropRect.y * s;
+  const cw = cropRect.w * s, ch = cropRect.h * s;
+  const hs = 12;
+  const corners = { nw: [cx, cy], ne: [cx + cw, cy], sw: [cx, cy + ch], se: [cx + cw, cy + ch] };
+  for (const name in corners) {
+    const [hx, hy] = corners[name];
+    if (Math.abs(mx - hx) < hs && Math.abs(my - hy) < hs) return name;
+  }
+  if (mx >= cx && mx <= cx + cw && my >= cy && my <= cy + ch) return 'move';
+  return null;
+}
+
+originalCanvas.addEventListener('mousedown', e => {
+  if (!sourceImage) return;
+  const { x, y } = canvasCoords(e);
+  const target = getHitTarget(x, y);
+  if (!target) return;
+  e.preventDefault();
+  dragState = {
+    mode: target,
+    startMx: x, startMy: y,
+    startX: cropRect.x, startY: cropRect.y,
+    startW: cropRect.w, startH: cropRect.h,
+  };
+});
+
+window.addEventListener('mousemove', e => {
+  if (!sourceImage) return;
+  if (dragState) {
+    const { x: mx, y: my } = canvasCoords(e);
+    const s = cropDisplayScale;
+    const dx = (mx - dragState.startMx) / s;
+    const dy = (my - dragState.startMy) / s;
+    let nx = dragState.startX, ny = dragState.startY;
+    let nw = dragState.startW, nh = dragState.startH;
+
+    if (dragState.mode === 'move') {
+      nx = dragState.startX + dx;
+      ny = dragState.startY + dy;
+    } else {
+      const m = dragState.mode;
+      if (m.includes('n')) { ny = dragState.startY + dy; nh = dragState.startH - dy; }
+      if (m.includes('s')) { nh = dragState.startH + dy; }
+      if (m.includes('w')) { nx = dragState.startX + dx; nw = dragState.startW - dx; }
+      if (m.includes('e')) { nw = dragState.startW + dx; }
+      if (nw < 10) nw = 10;
+      if (nh < 10) nh = 10;
+
+      if (cropAspectLocked) {
+        const targetAR = 4 / 3;
+        const anchorRight = dragState.startX + dragState.startW;
+        const anchorBottom = dragState.startY + dragState.startH;
+        if (nw / nh > targetAR) {
+          nh = nw / targetAR;
+        } else {
+          nw = nh * targetAR;
+        }
+        if (m.includes('w')) nx = anchorRight - nw;
+        if (m.includes('n')) ny = anchorBottom - nh;
+      }
+    }
+
+    // Clamp to source bounds
+    if (nx < 0) nx = 0;
+    if (ny < 0) ny = 0;
+    if (nx + nw > sourceImage.width) nw = sourceImage.width - nx;
+    if (ny + nh > sourceImage.height) nh = sourceImage.height - ny;
+
+    cropRect = { x: nx, y: ny, w: nw, h: nh };
+    renderCropOverlay();
+  } else {
+    // Cursor feedback
+    const { x, y } = canvasCoords(e);
+    const target = getHitTarget(x, y);
+    const cursors = {
+      'nw': 'nwse-resize', 'se': 'nwse-resize',
+      'ne': 'nesw-resize', 'sw': 'nesw-resize',
+      'move': 'move'
+    };
+    originalCanvas.style.cursor = cursors[target] || 'default';
+  }
+});
+
+window.addEventListener('mouseup', () => {
+  if (dragState) {
+    dragState = null;
+    if (sourceImage) convert();
+  }
+});
+
+window.addEventListener('resize', () => {
+  if (sourceImage) renderCropOverlay();
+});
+
+$('lockAspect').addEventListener('change', e => {
+  cropAspectLocked = e.target.checked;
+});
+
+// --- Settings change triggers reconvert ---
+for (const id of ['ditherMode', 'colorStrategy', 'brightness', 'contrast', 'saturation', 'showGrid']) {
+  $(id).addEventListener('input', () => {
+    if (id === 'brightness') $('brightnessVal').textContent = $(id).value;
+    if (id === 'contrast') $('contrastVal').textContent = $(id).value;
+    if (id === 'saturation') $('saturationVal').textContent = $(id).value;
+    if (sourceImage) convert();
+  });
+}
+
+// --- Error diffusion kernels ---
+// Each entry: [dx, dy, weight]
+const DIFFUSION_KERNELS = {
+  'floyd-steinberg': [
+    [1, 0, 7/16], [-1, 1, 3/16], [0, 1, 5/16], [1, 1, 1/16]
+  ],
+  'atkinson': [
+    [1, 0, 1/8], [2, 0, 1/8],
+    [-1, 1, 1/8], [0, 1, 1/8], [1, 1, 1/8],
+    [0, 2, 1/8]
+  ],
+  'stucki': [
+    [1, 0, 8/42], [2, 0, 4/42],
+    [-2, 1, 2/42], [-1, 1, 4/42], [0, 1, 8/42], [1, 1, 4/42], [2, 1, 2/42],
+    [-2, 2, 1/42], [-1, 2, 2/42], [0, 2, 4/42], [1, 2, 2/42], [2, 2, 1/42]
+  ],
+  'jarvis': [
+    [1, 0, 7/48], [2, 0, 5/48],
+    [-2, 1, 3/48], [-1, 1, 5/48], [0, 1, 7/48], [1, 1, 5/48], [2, 1, 3/48],
+    [-2, 2, 1/48], [-1, 2, 3/48], [0, 2, 5/48], [1, 2, 3/48], [2, 2, 1/48]
+  ],
+  'burkes': [
+    [1, 0, 8/32], [2, 0, 4/32],
+    [-2, 1, 2/32], [-1, 1, 4/32], [0, 1, 8/32], [1, 1, 4/32], [2, 1, 2/32]
+  ],
+  'sierra-lite': [
+    [1, 0, 2/4], [-1, 1, 1/4], [0, 1, 1/4]
+  ]
+};
+
+function isErrorDiffusion(mode) {
+  return mode in DIFFUSION_KERNELS;
+}
+
+// --- Main conversion pipeline ---
+function convert() {
+  screenWidth = 256;
+  screenHeight = 192;
+  const ditherMode = $('ditherMode').value;
+  const colorStrategy = $('colorStrategy').value;
+  const brightnessAdj = parseInt($('brightness').value);
+  const contrastAdj = parseInt($('contrast').value);
+  const saturationAdj = parseInt($('saturation').value) / 100;
+
+  statusText.textContent = 'Converting...';
+
+  // Use setTimeout to keep UI responsive
+  setTimeout(() => {
+    const t0 = performance.now();
+
+    // Step A: Scale source image to target resolution
+    const srcCanvas = document.createElement('canvas');
+    srcCanvas.width = screenWidth;
+    srcCanvas.height = screenHeight;
+    const srcCtx = srcCanvas.getContext('2d');
+    srcCtx.fillStyle = '#000';
+    srcCtx.fillRect(0, 0, screenWidth, screenHeight);
+
+    // Fit cropped region to target, maintaining aspect ratio
+    const cropW = cropRect ? cropRect.w : sourceImage.width;
+    const cropH = cropRect ? cropRect.h : sourceImage.height;
+    const cropX = cropRect ? cropRect.x : 0;
+    const cropY = cropRect ? cropRect.y : 0;
+    const scaleX = screenWidth / cropW;
+    const scaleY = screenHeight / cropH;
+    const scale = Math.min(scaleX, scaleY);
+    const dw = Math.round(cropW * scale);
+    const dh = Math.round(cropH * scale);
+    const dx = Math.round((screenWidth - dw) / 2);
+    const dy = Math.round((screenHeight - dh) / 2);
+
+    srcCtx.imageSmoothingEnabled = true;
+    srcCtx.imageSmoothingQuality = 'high';
+    srcCtx.drawImage(sourceImage, cropX, cropY, cropW, cropH, dx, dy, dw, dh);
+
+    const srcData = srcCtx.getImageData(0, 0, screenWidth, screenHeight);
+    const pixels = srcData.data; // Uint8ClampedArray RGBA
+
+    // Apply brightness/contrast/saturation adjustments
+    const contrastFactor = (259 * (contrastAdj + 255)) / (255 * (259 - contrastAdj));
+    for (let i = 0; i < pixels.length; i += 4) {
+      let r = pixels[i], g = pixels[i+1], b = pixels[i+2];
+
+      // Brightness
+      r += brightnessAdj; g += brightnessAdj; b += brightnessAdj;
+
+      // Contrast
+      r = contrastFactor * (r - 128) + 128;
+      g = contrastFactor * (g - 128) + 128;
+      b = contrastFactor * (b - 128) + 128;
+
+      // Saturation
+      const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+      r = gray + saturationAdj * (r - gray);
+      g = gray + saturationAdj * (g - gray);
+      b = gray + saturationAdj * (b - gray);
+
+      pixels[i]   = Math.max(0, Math.min(255, Math.round(r)));
+      pixels[i+1] = Math.max(0, Math.min(255, Math.round(g)));
+      pixels[i+2] = Math.max(0, Math.min(255, Math.round(b)));
+    }
+
+    // Working copy as float array for error diffusion
+    const work = new Float64Array(screenWidth * screenHeight * 3);
+    for (let y = 0; y < screenHeight; y++) {
+      for (let x = 0; x < screenWidth; x++) {
+        const si = (y * screenWidth + x) * 4;
+        const di = (y * screenWidth + x) * 3;
+        work[di]     = pixels[si];
+        work[di + 1] = pixels[si + 1];
+        work[di + 2] = pixels[si + 2];
+      }
+    }
+
+    // Result arrays
+    const resultPixels = new Uint8Array(screenWidth * screenHeight * 3);
+    const attrRows = 24;
+    const numAttrCols = 32;
+    const attrs = new Uint8Array(numAttrCols * attrRows);
+
+    // Step C+D: Process each 8x8 attribute block
+    for (let by = 0; by < attrRows; by++) {
+      for (let bx = 0; bx < numAttrCols; bx++) {
+        const blockX = bx * 8;
+        const blockY = by * 8;
+
+        // Find best ink/paper/bright for this block
+        let bestInk, bestPaper, bestBright, bestError = Infinity;
+
+        if (colorStrategy === 'per-block') {
+          // Strategy 1: Try all combinations
+          for (let bright = 0; bright <= 1; bright++) {
+            const pal = bright ? PALETTE_BRIGHT : PALETTE_NORMAL;
+            for (let ink = 0; ink < 8; ink++) {
+              for (let paper = ink; paper < 8; paper++) {
+                const err = evaluateBlock(work, blockX, blockY, 8, 8,
+                                          pal[ink], pal[paper], ditherMode);
+                if (err < bestError) {
+                  bestError = err;
+                  bestInk = ink;
+                  bestPaper = paper;
+                  bestBright = bright;
+                }
+              }
+            }
+          }
+        } else {
+          // Strategy 2: Global pre-quantize then pick best 2
+          bestBright = 0; bestInk = 0; bestPaper = 7;
+          const colorCounts = new Map();
+
+          for (let py = 0; py < 8; py++) {
+            for (let px = 0; px < 8; px++) {
+              const idx = ((blockY + py) * screenWidth + (blockX + px)) * 3;
+              const r = Math.max(0, Math.min(255, work[idx]));
+              const g = Math.max(0, Math.min(255, work[idx+1]));
+              const b = Math.max(0, Math.min(255, work[idx+2]));
+              const nearest = nearestSpectrumColor(r, g, b);
+              const key = nearest.bright * 8 + nearest.index;
+              colorCounts.set(key, (colorCounts.get(key) || 0) + 1);
+            }
+          }
+
+          // Sort by frequency
+          const sorted = [...colorCounts.entries()].sort((a, b) => b[1] - a[1]);
+
+          if (sorted.length >= 2) {
+            // Try to find best pair from top candidates
+            const candidates = sorted.slice(0, Math.min(6, sorted.length));
+            bestError = Infinity;
+
+            for (let i = 0; i < candidates.length; i++) {
+              for (let j = i; j < candidates.length; j++) {
+                const c1key = candidates[i][0];
+                const c2key = candidates[j][0];
+                const c1bright = c1key >> 3, c1idx = c1key & 7;
+                const c2bright = c2key >> 3, c2idx = c2key & 7;
+
+                // Both colors must share same brightness (unless one is black)
+                for (let tryBright = 0; tryBright <= 1; tryBright++) {
+                  const pal = tryBright ? PALETTE_BRIGHT : PALETTE_NORMAL;
+                  const err = evaluateBlock(work, blockX, blockY, 8, 8,
+                                            pal[c1idx], pal[c2idx], ditherMode);
+                  if (err < bestError) {
+                    bestError = err;
+                    bestInk = c1idx;
+                    bestPaper = c2idx;
+                    bestBright = tryBright;
+                  }
+                }
+              }
+            }
+          } else if (sorted.length === 1) {
+            const key = sorted[0][0];
+            bestBright = key >> 3;
+            bestInk = key & 7;
+            bestPaper = bestInk;
+          }
+        }
+
+        // Now apply the chosen colors with dithering to produce final block pixels
+        const pal = bestBright ? PALETTE_BRIGHT : PALETTE_NORMAL;
+        const inkColor = pal[bestInk];
+        const paperColor = pal[bestPaper];
+
+        applyBlockDither(work, resultPixels, blockX, blockY, 8, 8,
+                         inkColor, paperColor, ditherMode);
+
+        // Store attribute
+        attrs[by * numAttrCols + bx] = (bestBright << 6) | (bestPaper << 3) | bestInk;
+      }
+    }
+
+    convertedPixels = resultPixels;
+    convertedAttrs = attrs;
+
+    // Generate SCREEN$ binary
+    scrBytes = generateStandardScreen(resultPixels, attrs);
+
+    // Render converted preview
+    renderConvertedPreview(resultPixels);
+
+    const elapsed = (performance.now() - t0).toFixed(0);
+    statusText.textContent = `Converted in ${elapsed}ms`;
+    statusSize.textContent = `SCREEN$: ${scrBytes.length} bytes`;
+
+    // Enable export buttons
+    for (const id of ['exportScr','exportTap','exportPng1x','exportPng2x','exportPng4x','exportJpg1x','exportJpg2x','exportJpg4x']) {
+      $(id).disabled = false;
+    }
+  }, 10);
+}
+
+// --- Evaluate a block with a given color pair (returns total error, no side effects) ---
+function evaluateBlock(work, bx, by, bw, bh, color0, color1, ditherMode) {
+  let totalError = 0;
+
+  if (isThresholdDither(ditherMode)) {
+    for (let py = 0; py < bh; py++) {
+      for (let px = 0; px < bw; px++) {
+        const idx = ((by + py) * screenWidth + (bx + px)) * 3;
+        const r = Math.max(0, Math.min(255, work[idx]));
+        const g = Math.max(0, Math.min(255, work[idx+1]));
+        const b = Math.max(0, Math.min(255, work[idx+2]));
+
+        const factor = blendFactor(r, g, b, color0, color1, ditherMode);
+        const threshold = getThreshold(ditherMode, bx + px, by + py);
+        const chosen = factor > threshold ? color1 : color0;
+        totalError += colorDist([r, g, b], chosen);
+      }
+    }
+  } else {
+    // Error diffusion or none: evaluate with temporary copy
+    const tempW = bw;
+    const tempH = bh;
+    const temp = new Float64Array(tempW * tempH * 3);
+    for (let py = 0; py < bh; py++) {
+      for (let px = 0; px < bw; px++) {
+        const srcIdx = ((by + py) * screenWidth + (bx + px)) * 3;
+        const tIdx = (py * tempW + px) * 3;
+        temp[tIdx]     = work[srcIdx];
+        temp[tIdx + 1] = work[srcIdx + 1];
+        temp[tIdx + 2] = work[srcIdx + 2];
+      }
+    }
+
+    const kernel = DIFFUSION_KERNELS[ditherMode];
+
+    for (let py = 0; py < bh; py++) {
+      for (let px = 0; px < bw; px++) {
+        const tIdx = (py * tempW + px) * 3;
+        const r = Math.max(0, Math.min(255, temp[tIdx]));
+        const g = Math.max(0, Math.min(255, temp[tIdx+1]));
+        const b = Math.max(0, Math.min(255, temp[tIdx+2]));
+        const pixel = [r, g, b];
+
+        const d0 = colorDist(pixel, color0);
+        const d1 = colorDist(pixel, color1);
+        const chosen = d0 <= d1 ? color0 : color1;
+        totalError += Math.min(d0, d1);
+
+        if (kernel) {
+          const er = r - chosen[0];
+          const eg = g - chosen[1];
+          const eb = b - chosen[2];
+          for (const [dx, dy, weight] of kernel) {
+            const nx = px + dx, ny = py + dy;
+            if (nx >= 0 && nx < tempW && ny >= 0 && ny < tempH) {
+              const nIdx = (ny * tempW + nx) * 3;
+              temp[nIdx]     += er * weight;
+              temp[nIdx + 1] += eg * weight;
+              temp[nIdx + 2] += eb * weight;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return totalError;
+}
+
+// --- Apply dithering to a block and write final pixels ---
+function applyBlockDither(work, result, bx, by, bw, bh, inkColor, paperColor, ditherMode) {
+  if (isThresholdDither(ditherMode)) {
+    for (let py = 0; py < bh; py++) {
+      for (let px = 0; px < bw; px++) {
+        const idx = ((by + py) * screenWidth + (bx + px)) * 3;
+        const r = Math.max(0, Math.min(255, work[idx]));
+        const g = Math.max(0, Math.min(255, work[idx+1]));
+        const b = Math.max(0, Math.min(255, work[idx+2]));
+
+        const factor = blendFactor(r, g, b, inkColor, paperColor, ditherMode);
+        const threshold = getThreshold(ditherMode, bx + px, by + py);
+        const chosen = factor > threshold ? paperColor : inkColor;
+
+        result[idx]     = chosen[0];
+        result[idx + 1] = chosen[1];
+        result[idx + 2] = chosen[2];
+      }
+    }
+  } else {
+    // Error diffusion (or none)
+    const tempW = bw, tempH = bh;
+    const temp = new Float64Array(tempW * tempH * 3);
+    for (let py = 0; py < bh; py++) {
+      for (let px = 0; px < bw; px++) {
+        const srcIdx = ((by + py) * screenWidth + (bx + px)) * 3;
+        const tIdx = (py * tempW + px) * 3;
+        temp[tIdx]     = work[srcIdx];
+        temp[tIdx + 1] = work[srcIdx + 1];
+        temp[tIdx + 2] = work[srcIdx + 2];
+      }
+    }
+
+    const kernel = DIFFUSION_KERNELS[ditherMode];
+
+    for (let py = 0; py < bh; py++) {
+      for (let px = 0; px < bw; px++) {
+        const tIdx = (py * tempW + px) * 3;
+        const r = Math.max(0, Math.min(255, temp[tIdx]));
+        const g = Math.max(0, Math.min(255, temp[tIdx+1]));
+        const b = Math.max(0, Math.min(255, temp[tIdx+2]));
+        const pixel = [r, g, b];
+
+        const d0 = colorDist(pixel, inkColor);
+        const d1 = colorDist(pixel, paperColor);
+        const chosen = d0 <= d1 ? inkColor : paperColor;
+
+        const outIdx = ((by + py) * screenWidth + (bx + px)) * 3;
+        result[outIdx]     = chosen[0];
+        result[outIdx + 1] = chosen[1];
+        result[outIdx + 2] = chosen[2];
+
+        if (kernel) {
+          const er = r - chosen[0];
+          const eg = g - chosen[1];
+          const eb = b - chosen[2];
+          for (const [dx, dy, weight] of kernel) {
+            const nx = px + dx, ny = py + dy;
+            if (nx >= 0 && nx < tempW && ny >= 0 && ny < tempH) {
+              const nIdx = (ny * tempW + nx) * 3;
+              temp[nIdx]     += er * weight;
+              temp[nIdx + 1] += eg * weight;
+              temp[nIdx + 2] += eb * weight;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+// --- Generate Standard ZX Spectrum SCREEN$ (6912 bytes) ---
+function generateStandardScreen(pixels, attrs) {
+  const scr = new Uint8Array(6912);
+
+  // Pixel data: 6144 bytes
+  for (let y = 0; y < 192; y++) {
+    // Spectrum screen memory address for line y
+    const addr = ((y & 0xC0) << 5) | ((y & 0x07) << 8) | ((y & 0x38) << 2);
+    for (let col = 0; col < 32; col++) {
+      let byte = 0;
+      for (let bit = 0; bit < 8; bit++) {
+        const x = col * 8 + bit;
+        const pIdx = (y * 256 + x) * 3;
+        // Determine which attribute block this pixel is in
+        const attrIdx = Math.floor(y / 8) * 32 + col;
+        const attr = attrs[attrIdx];
+        const ink = attr & 0x07;
+        const paper = (attr >> 3) & 0x07;
+        const bright = (attr >> 6) & 0x01;
+        const pal = bright ? PALETTE_BRIGHT : PALETTE_NORMAL;
+
+        // Is this pixel ink (1) or paper (0)?
+        const inkDist = colorDist([pixels[pIdx], pixels[pIdx+1], pixels[pIdx+2]], pal[ink]);
+        const paperDist = colorDist([pixels[pIdx], pixels[pIdx+1], pixels[pIdx+2]], pal[paper]);
+        if (inkDist <= paperDist) {
+          byte |= (0x80 >> bit);
+        }
+      }
+      scr[addr + col] = byte;
+    }
+  }
+
+  // Attribute data: 768 bytes at offset 6144
+  for (let i = 0; i < 768; i++) {
+    scr[6144 + i] = attrs[i];
+  }
+
+  return scr;
+}
+
+// --- TAP file generation ---
+function generateTap(screenData, filename) {
+  // Pad or truncate filename to 10 chars
+  let name = (filename || 'screen').padEnd(10, ' ').substring(0, 10);
+  const nameBytes = new Uint8Array(10);
+  for (let i = 0; i < 10; i++) nameBytes[i] = name.charCodeAt(i);
+
+  const dataLen = screenData.length;
+
+  // Header block: type=3 (CODE), length, param1=16384, param2=32768
+  const headerData = new Uint8Array(17);
+  headerData[0] = 3; // CODE type
+  headerData.set(nameBytes, 1);
+  headerData[11] = dataLen & 0xFF;
+  headerData[12] = (dataLen >> 8) & 0xFF;
+  headerData[13] = 0x00; // param1 low (16384 & 0xFF = 0)
+  headerData[14] = 0x40; // param1 high (16384 >> 8 = 64 = 0x40)
+  headerData[15] = 0x00; // param2 low (32768)
+  headerData[16] = 0x80; // param2 high
+
+  // Build header TAP block
+  const headerBlock = new Uint8Array(headerData.length + 2); // flag + data + checksum
+  headerBlock[0] = 0x00; // flag: header
+  headerBlock.set(headerData, 1);
+  let chk = 0x00; // start with flag
+  for (let i = 0; i < headerData.length; i++) chk ^= headerData[i];
+  headerBlock[headerBlock.length - 1] = chk;
+
+  // Build data TAP block
+  const dataBlock = new Uint8Array(screenData.length + 2); // flag + data + checksum
+  dataBlock[0] = 0xFF; // flag: data
+  dataBlock.set(screenData, 1);
+  chk = 0xFF; // start with flag
+  for (let i = 0; i < screenData.length; i++) chk ^= screenData[i];
+  dataBlock[dataBlock.length - 1] = chk;
+
+  // Wrap in TAP format (each block preceded by 2-byte LE length)
+  const tap = new Uint8Array(2 + headerBlock.length + 2 + dataBlock.length);
+  let offset = 0;
+  tap[offset++] = headerBlock.length & 0xFF;
+  tap[offset++] = (headerBlock.length >> 8) & 0xFF;
+  tap.set(headerBlock, offset);
+  offset += headerBlock.length;
+  tap[offset++] = dataBlock.length & 0xFF;
+  tap[offset++] = (dataBlock.length >> 8) & 0xFF;
+  tap.set(dataBlock, offset);
+
+  return tap;
+}
+
+// --- Render converted preview ---
+function renderConvertedPreview(pixels) {
+  const scale = getPreviewScale();
+  convertedCanvas.width = screenWidth * scale;
+  convertedCanvas.height = screenHeight * scale;
+  const ctx = convertedCanvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+
+  // Build ImageData at native res
+  const imgData = new ImageData(screenWidth, screenHeight);
+  for (let i = 0; i < screenWidth * screenHeight; i++) {
+    imgData.data[i * 4]     = pixels[i * 3];
+    imgData.data[i * 4 + 1] = pixels[i * 3 + 1];
+    imgData.data[i * 4 + 2] = pixels[i * 3 + 2];
+    imgData.data[i * 4 + 3] = 255;
+  }
+
+  const tempCanvas = document.createElement('canvas');
+  tempCanvas.width = screenWidth;
+  tempCanvas.height = screenHeight;
+  tempCanvas.getContext('2d').putImageData(imgData, 0, 0);
+  ctx.drawImage(tempCanvas, 0, 0, screenWidth * scale, screenHeight * scale);
+
+  // Draw attribute grid overlay if enabled
+  if ($('showGrid').checked) {
+    const blockW = 8 * scale;
+    const blockH = 8 * scale;
+    ctx.strokeStyle = 'rgba(255, 255, 0, 0.3)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x <= screenWidth * scale; x += blockW) {
+      ctx.beginPath(); ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, screenHeight * scale); ctx.stroke();
+    }
+    for (let y = 0; y <= screenHeight * scale; y += blockH) {
+      ctx.beginPath(); ctx.moveTo(0, y + 0.5); ctx.lineTo(screenWidth * scale, y + 0.5); ctx.stroke();
+    }
+  }
+}
+
+function getPreviewScale() {
+  // Auto-scale to fit available space
+  const wrap = document.querySelector('.canvas-wrap');
+  if (!wrap) return 2;
+  const maxW = wrap.clientWidth - 16;
+  const maxH = wrap.clientHeight - 16;
+  if (maxW <= 0 || maxH <= 0) return 2;
+  const scaleX = maxW / screenWidth;
+  const scaleY = maxH / screenHeight;
+  return Math.max(1, Math.min(4, Math.floor(Math.min(scaleX, scaleY))));
+}
+
+// --- Export helpers ---
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function exportImage(format, scale) {
+  if (!convertedPixels) return;
+  const canvas = document.createElement('canvas');
+  canvas.width = screenWidth * scale;
+  canvas.height = screenHeight * scale;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+
+  const imgData = new ImageData(screenWidth, screenHeight);
+  for (let i = 0; i < screenWidth * screenHeight; i++) {
+    imgData.data[i * 4]     = convertedPixels[i * 3];
+    imgData.data[i * 4 + 1] = convertedPixels[i * 3 + 1];
+    imgData.data[i * 4 + 2] = convertedPixels[i * 3 + 2];
+    imgData.data[i * 4 + 3] = 255;
+  }
+
+  const tempCanvas = document.createElement('canvas');
+  tempCanvas.width = screenWidth;
+  tempCanvas.height = screenHeight;
+  tempCanvas.getContext('2d').putImageData(imgData, 0, 0);
+  ctx.drawImage(tempCanvas, 0, 0, canvas.width, canvas.height);
+
+  const mimeType = format === 'jpg' ? 'image/jpeg' : 'image/png';
+  const ext = format === 'jpg' ? 'jpg' : 'png';
+  canvas.toBlob(blob => {
+    downloadBlob(blob, `spectrum_${screenWidth}x${screenHeight}_${scale}x.${ext}`);
+  }, mimeType, format === 'jpg' ? 0.95 : undefined);
+}
+
+// --- Export event handlers ---
+$('exportScr').addEventListener('click', () => {
+  if (!scrBytes) return;
+  downloadBlob(new Blob([scrBytes], { type: 'application/octet-stream' }),
+               `screen_${screenWidth}x${screenHeight}.scr`);
+});
+
+$('exportTap').addEventListener('click', () => {
+  if (!scrBytes) return;
+  const tap = generateTap(scrBytes, 'Loading');
+  downloadBlob(new Blob([tap], { type: 'application/octet-stream' }),
+               `screen_${screenWidth}x${screenHeight}.tap`);
+});
+
+$('exportPng1x').addEventListener('click', () => exportImage('png', 1));
+$('exportPng2x').addEventListener('click', () => exportImage('png', 2));
+$('exportPng4x').addEventListener('click', () => exportImage('png', 4));
+$('exportJpg1x').addEventListener('click', () => exportImage('jpg', 1));
+$('exportJpg2x').addEventListener('click', () => exportImage('jpg', 2));
+$('exportJpg4x').addEventListener('click', () => exportImage('jpg', 4));
+
+})();
+</script>
+
+</body>
+</html>
