@@ -288,6 +288,152 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   object-fit: contain;
 }
 
+/* --- CRT / monitor frame around converted output --- */
+.crt-frame {
+  position: relative;
+  display: inline-block;
+  padding: 28px 32px 44px 32px;
+  background: linear-gradient(145deg, #2a2a2a, #111);
+  border-radius: 22px;
+  box-shadow:
+    inset 0 0 0 2px #000,
+    inset 0 0 18px rgba(0,0,0,0.9),
+    0 10px 40px rgba(0, 0, 0, 0.6),
+    0 0 0 2px #3a3a3a;
+  max-width: 100%;
+  max-height: 100%;
+}
+.crt-frame::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  width: 70px;
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, #555, #111);
+  box-shadow: 0 0 4px rgba(0,0,0,0.7);
+}
+.crt-frame .crt-screen {
+  position: relative;
+  border-radius: 8px;
+  background: #000;
+  padding: 4px;
+  box-shadow:
+    inset 0 0 30px rgba(0, 20, 30, 0.8),
+    inset 0 0 6px rgba(0, 0, 0, 1);
+  overflow: hidden;
+  line-height: 0;
+}
+.crt-frame.scanlines .crt-screen::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0) 0,
+    rgba(0, 0, 0, 0) 2px,
+    rgba(0, 0, 0, 0.18) 2px,
+    rgba(0, 0, 0, 0.18) 3px
+  );
+  mix-blend-mode: multiply;
+}
+.crt-frame .crt-screen canvas {
+  display: block;
+  margin: 0 auto;
+}
+
+/* --- Zoom controls --- */
+.zoom-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  flex-wrap: wrap;
+}
+.zoom-bar .zoom-label { color: var(--text-dim); margin-right: 4px; }
+.zoom-bar button.zoom-btn {
+  padding: 3px 10px;
+  font-size: 0.75rem;
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.zoom-bar button.zoom-btn.active {
+  background: var(--accent2);
+  color: var(--bg);
+  border-color: var(--accent2);
+}
+.zoom-bar .spacer { flex: 1; }
+
+/* --- Fullscreen modal --- */
+.fs-overlay {
+  position: fixed; inset: 0;
+  background: #000;
+  z-index: 9999;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  cursor: zoom-out;
+}
+.fs-overlay.visible { display: flex; }
+.fs-overlay canvas {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  max-width: 100vw;
+  max-height: 100vh;
+  display: block;
+}
+.fs-hint {
+  position: fixed;
+  bottom: 16px; left: 50%;
+  transform: translateX(-50%);
+  color: #888;
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* --- A/B compare --- */
+.ab-compare {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  align-items: flex-start;
+  justify-content: center;
+}
+.ab-pane {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 50%;
+}
+.ab-pane .caption {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  text-align: center;
+  max-width: 100%;
+  word-break: break-word;
+}
+.ab-pane canvas {
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  max-width: 100%;
+  max-height: 70vh;
+}
+
 .status-bar {
   background: var(--surface);
   border-top: 1px solid var(--border);
@@ -413,6 +559,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
         <option value="jarvis">Jarvis-Judice-Ninke</option>
         <option value="burkes">Burkes</option>
         <option value="sierra-lite">Sierra Lite</option>
+        <option value="hilbert-fs">Hilbert-curve FS</option>
         <option value="ordered">Ordered (Bayer 4×4)</option>
         <option value="ordered8">Ordered (Bayer 8×8)</option>
         <option value="blue-noise">Blue noise</option>
@@ -467,6 +614,55 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
         <input type="checkbox" id="showGrid">
         Show attribute grid
       </label>
+      <label class="checkbox-row">
+        <input type="checkbox" id="crtFrame">
+        CRT frame
+      </label>
+      <label class="checkbox-row" id="crtScanlinesRow" style="display:none; margin-left: 22px;">
+        <input type="checkbox" id="crtScanlines">
+        Scanline overlay
+      </label>
+      <label class="checkbox-row">
+        <input type="checkbox" id="linearDither">
+        Dither in linear color space (experimental)
+      </label>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="control-group">
+      <h3>Block pre-blur</h3>
+      <label>Gaussian radius for block color selection</label>
+      <div class="range-row">
+        <input type="range" id="blockBlur" min="0" max="50" step="1" value="0">
+        <span class="range-val" id="blockBlurVal">0.0</span>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="control-group">
+      <h3>Compare</h3>
+      <button class="btn-secondary" id="snapshotBtn">Snapshot for A/B</button>
+      <label class="checkbox-row">
+        <input type="checkbox" id="showAB">
+        Show A/B compare
+      </label>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="control-group">
+      <h3>Profile</h3>
+      <div class="export-row">
+        <button class="btn-secondary" id="exportProfileBtn">Export</button>
+        <button class="btn-secondary" id="importProfileBtn">Import</button>
+      </div>
+      <div class="export-row">
+        <button class="btn-secondary" id="importModesBtn" title="Import a JSON with { modes: {...} } to register custom display modes">Import custom modes</button>
+      </div>
+      <input type="file" id="profileFileInput" accept="application/json,.json" style="display:none;">
+      <input type="file" id="modesFileInput" accept="application/json,.json" style="display:none;">
     </div>
 
     <div class="divider"></div>
@@ -522,16 +718,43 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
     <div class="preview-area" id="previewArea">
       <div class="preview-labels">
         <span>Source — drag to crop</span>
-        <span>Converted</span>
+        <span style="display:flex; align-items:center; gap:8px; flex:1;">
+          <span>Converted</span>
+          <span style="flex:1;"></span>
+          <span class="zoom-bar" id="zoomBar">
+            <span class="zoom-label">Zoom:</span>
+            <button class="zoom-btn" data-zoom="1">1x</button>
+            <button class="zoom-btn" data-zoom="2">2x</button>
+            <button class="zoom-btn" data-zoom="4">4x</button>
+            <button class="zoom-btn" data-zoom="8">8x</button>
+            <button class="zoom-btn active" data-zoom="fit">fit</button>
+            <button class="zoom-btn" id="fullscreenBtn" title="Fullscreen">⛶ FS</button>
+          </span>
+        </span>
       </div>
       <div class="canvas-row">
         <div class="canvas-wrap">
           <canvas id="originalCanvas"></canvas>
         </div>
-        <div class="canvas-wrap">
+        <div class="canvas-wrap" id="convertedWrap">
           <canvas id="convertedCanvas"></canvas>
+          <div class="ab-compare" id="abCompare" style="display:none;">
+            <div class="ab-pane">
+              <canvas id="abSnapshotCanvas"></canvas>
+              <div class="caption" id="abSnapshotCaption">Snapshot</div>
+            </div>
+            <div class="ab-pane">
+              <canvas id="abLiveCanvas"></canvas>
+              <div class="caption" id="abLiveCaption">Live</div>
+            </div>
+          </div>
         </div>
       </div>
+    </div>
+
+    <div class="fs-overlay" id="fsOverlay">
+      <canvas id="fsCanvas"></canvas>
+      <div class="fs-hint">Esc or click to close</div>
     </div>
 
     <div class="status-bar">
@@ -946,6 +1169,11 @@ let cropRect = null;          // {x, y, w, h} in source image coords
 let cropAspectLocked = true;
 let cropDisplayScale = 1;     // source px -> display px
 let dragState = null;         // active drag info
+let zoomLevel = 'fit';        // 'fit' | 1 | 2 | 4 | 8
+let abSnapshot = null;        // { pixels, w, h, aspect, caption }
+
+// Custom modes registered via import — merged into MODES at runtime.
+const customModeNames = new Set();
 
 // DOM elements
 const $ = id => document.getElementById(id);
@@ -1276,12 +1504,13 @@ $('lockAspect').addEventListener('change', e => {
 });
 
 // --- Settings change triggers reconvert ---
-for (const id of ['displayMode', 'ditherMode', 'colorStrategy', 'hiresPair', 'inkColor', 'paperColor', 'hiresBright', 'atariHue', 'brightness', 'contrast', 'saturation', 'gamma', 'showGrid']) {
+for (const id of ['displayMode', 'ditherMode', 'colorStrategy', 'hiresPair', 'inkColor', 'paperColor', 'hiresBright', 'atariHue', 'brightness', 'contrast', 'saturation', 'gamma', 'showGrid', 'linearDither', 'blockBlur']) {
   $(id).addEventListener('input', () => {
     if (id === 'brightness') $('brightnessVal').textContent = $(id).value;
     if (id === 'contrast') $('contrastVal').textContent = $(id).value;
     if (id === 'saturation') $('saturationVal').textContent = $(id).value;
     if (id === 'gamma') $('gammaVal').textContent = (parseInt($(id).value) / 100).toFixed(2);
+    if (id === 'blockBlur') $('blockBlurVal').textContent = (parseInt($(id).value) / 10).toFixed(1);
     if (id === 'displayMode') {
       currentMode = $('displayMode').value;
       updateModeUI();
@@ -1308,6 +1537,8 @@ function updateModeUI() {
     const ext = cfg.ext;
     const label = ext.startsWith('_') ? ext : '.' + ext;
     btn.textContent = `Download ${label}`;
+    // Disable binary export for user-defined custom modes (no generator).
+    btn.disabled = !!cfg.custom;
   }
 }
 updateModeUI();
@@ -1343,7 +1574,7 @@ const DIFFUSION_KERNELS = {
 };
 
 function isErrorDiffusion(mode) {
-  return mode in DIFFUSION_KERNELS;
+  return mode in DIFFUSION_KERNELS || mode === 'hilbert-fs';
 }
 
 // --- Main conversion pipeline ---
@@ -1359,6 +1590,8 @@ function convert() {
   const saturationAdj = parseInt($('saturation').value) / 100;
   const gammaValue = parseInt($('gamma').value) / 100;
   const invGamma = 1 / gammaValue;
+  const linearDither = $('linearDither') ? $('linearDither').checked : false;
+  const blockBlurRadius = $('blockBlur') ? parseInt($('blockBlur').value) / 10 : 0;
 
   statusText.textContent = 'Converting...';
 
@@ -1446,6 +1679,28 @@ function convert() {
       }
     }
 
+    // --- Linear color space transform (optional) ---
+    // When enabled, the dither pipeline operates on sRGB-linear values so
+    // errors accumulate in a perceptually-linear space. We also linearize the
+    // mode palette and convert the result back to sRGB at the end.
+    if (linearDither) {
+      for (let i = 0; i < work.length; i++) work[i] = srgbToLinearChan(work[i]);
+    }
+    // Swap in linearized palettes transparently
+    const origPalettes = modeCfg.palettes;
+    const activePalettes = linearDither
+      ? origPalettes.map(p => srgbToLinearPalette(p))
+      : origPalettes;
+    modeCfg.palettes = activePalettes;
+
+    // --- Block pre-blur copy for color-selection scoring ---
+    // evaluateBlock / global-prequant / c64-koala pre-sort use a blurred copy
+    // (if blur > 0) so neighbouring blocks choose more cohesive palettes. The
+    // final dither pass still reads the unblurred `work` so detail is kept.
+    const blockWork = (blockBlurRadius > 0)
+      ? gaussianBlur(work, screenWidth, screenHeight, blockBlurRadius)
+      : work;
+
     // Content mask: true where the actual scaled image lives; false for the
     // black letterbox outside. Used by the dither pass so error diffusion
     // doesn't bleed into / out of the letterbox bars.
@@ -1501,7 +1756,7 @@ function convert() {
           for (let py = 0; py < bH; py++) {
             for (let px = 0; px < bW; px++) {
               const idx = ((blockY + py) * screenWidth + (blockX + px)) * 3;
-              const L = 0.299*work[idx] + 0.587*work[idx+1] + 0.114*work[idx+2];
+              const L = 0.299*blockWork[idx] + 0.587*blockWork[idx+1] + 0.114*blockWork[idx+2];
               if (L < lumaMin) lumaMin = L;
               if (L > lumaMax) lumaMax = L;
             }
@@ -1516,7 +1771,7 @@ function convert() {
                 const paperStart = requireDistinct ? ink + 1 : ink;
                 for (let paper = paperStart; paper < 8; paper++) {
                   if (isColorDisabled(currentMode, bright, paper)) continue;
-                  const err = evaluateBlock(work, blockX, blockY, bW, bH,
+                  const err = evaluateBlock(blockWork, blockX, blockY, bW, bH,
                                             [pal[ink], pal[paper]], ditherMode);
                   if (err < bestError) {
                     bestError = err; bestInk = ink; bestPaper = paper; bestBright = bright;
@@ -1529,9 +1784,9 @@ function convert() {
             for (let py = 0; py < bH; py++) {
               for (let px = 0; px < bW; px++) {
                 const idx = ((blockY + py) * screenWidth + (blockX + px)) * 3;
-                const r = Math.max(0, Math.min(255, work[idx]));
-                const g = Math.max(0, Math.min(255, work[idx+1]));
-                const b = Math.max(0, Math.min(255, work[idx+2]));
+                const r = Math.max(0, Math.min(255, blockWork[idx]));
+                const g = Math.max(0, Math.min(255, blockWork[idx+1]));
+                const b = Math.max(0, Math.min(255, blockWork[idx+2]));
                 const nearest = nearestSpectrumColor(r, g, b);
                 const key = nearest.bright * 8 + nearest.index;
                 colorCounts.set(key, (colorCounts.get(key) || 0) + 1);
@@ -1546,7 +1801,7 @@ function convert() {
                   const c2idx = candidates[j][0] & 7;
                   for (let tryBright = 0; tryBright <= 1; tryBright++) {
                     const pal = modeCfg.palettes[tryBright];
-                    const err = evaluateBlock(work, blockX, blockY, bW, bH,
+                    const err = evaluateBlock(blockWork, blockX, blockY, bW, bH,
                                               [pal[c1idx], pal[c2idx]], ditherMode);
                     if (err < bestError) {
                       bestError = err; bestInk = c1idx; bestPaper = c2idx; bestBright = tryBright;
@@ -1566,7 +1821,7 @@ function convert() {
         }
       }
     } else if (strategy === 'exhaustive' && currentMode === 'c64-hires') {
-      const pal = PALETTE_C64;
+      const pal = linearDither ? srgbToLinearPalette(PALETTE_C64) : PALETTE_C64;
       attrs = new Uint8Array(numAttrCols * numAttrRows); // screen RAM
       for (let by = 0; by < numAttrRows; by++) {
         for (let bx = 0; bx < numAttrCols; bx++) {
@@ -1575,7 +1830,7 @@ function convert() {
           for (const combo of generateCombinations(16, 2, null)) {
             if (isColorDisabled(currentMode, 0, combo[0])) continue;
             if (isColorDisabled(currentMode, 0, combo[1])) continue;
-            const err = evaluateBlock(work, blockX, blockY, bW, bH,
+            const err = evaluateBlock(blockWork, blockX, blockY, bW, bH,
                                        [pal[combo[0]], pal[combo[1]]], ditherMode);
             if (err < bestError) { bestError = err; bestA = combo[0]; bestB = combo[1]; }
           }
@@ -1586,7 +1841,7 @@ function convert() {
         }
       }
     } else if (strategy === 'exhaustive' && currentMode === 'c64-koala') {
-      const pal = PALETTE_C64;
+      const pal = linearDither ? srgbToLinearPalette(PALETTE_C64) : PALETTE_C64;
       // Phase 1: auto-pick shared background.
       // For speed, sample a stride of blocks with a nearest-color error proxy.
       let bestBg = 0, bestBgErr = Infinity;
@@ -1599,9 +1854,9 @@ function convert() {
             for (let py = 0; py < bH; py++) {
               for (let px = 0; px < bW; px++) {
                 const idx = ((blockY + py) * screenWidth + (blockX + px)) * 3;
-                const r = Math.max(0, Math.min(255, work[idx]));
-                const g = Math.max(0, Math.min(255, work[idx+1]));
-                const b = Math.max(0, Math.min(255, work[idx+2]));
+                const r = Math.max(0, Math.min(255, blockWork[idx]));
+                const g = Math.max(0, Math.min(255, blockWork[idx+1]));
+                const b = Math.max(0, Math.min(255, blockWork[idx+2]));
                 counts[quantizeNearest(r, g, b, pal)]++;
               }
             }
@@ -1615,9 +1870,9 @@ function convert() {
             for (let py = 0; py < bH; py++) {
               for (let px = 0; px < bW; px++) {
                 const idx = ((blockY + py) * screenWidth + (blockX + px)) * 3;
-                const r = Math.max(0, Math.min(255, work[idx]));
-                const g = Math.max(0, Math.min(255, work[idx+1]));
-                const b = Math.max(0, Math.min(255, work[idx+2]));
+                const r = Math.max(0, Math.min(255, blockWork[idx]));
+                const g = Math.max(0, Math.min(255, blockWork[idx+1]));
+                const b = Math.max(0, Math.min(255, blockWork[idx+2]));
                 const ci = quantizeNearest(r, g, b, colors);
                 totalErr += colorDist([r, g, b], colors[ci]);
               }
@@ -1636,9 +1891,9 @@ function convert() {
           for (let py = 0; py < bH; py++) {
             for (let px = 0; px < bW; px++) {
               const idx = ((blockY + py) * screenWidth + (blockX + px)) * 3;
-              const r = Math.max(0, Math.min(255, work[idx]));
-              const g = Math.max(0, Math.min(255, work[idx+1]));
-              const b = Math.max(0, Math.min(255, work[idx+2]));
+              const r = Math.max(0, Math.min(255, blockWork[idx]));
+              const g = Math.max(0, Math.min(255, blockWork[idx+1]));
+              const b = Math.max(0, Math.min(255, blockWork[idx+2]));
               counts[quantizeNearest(r, g, b, pal)]++;
             }
           }
@@ -1656,7 +1911,7 @@ function convert() {
               for (let k = j + 1; k < top.length; k++) {
                 const ids = [bestBg, top[i], top[j], top[k]];
                 const colors = ids.map(x => pal[x]);
-                const err = evaluateBlock(work, blockX, blockY, bW, bH, colors, ditherMode);
+                const err = evaluateBlock(blockWork, blockX, blockY, bW, bH, colors, ditherMode);
                 if (err < bestErr) { bestErr = err; bestColors = ids; }
               }
             }
@@ -1672,9 +1927,9 @@ function convert() {
       for (let y = 0; y < screenHeight; y++) {
         for (let x = 0; x < screenWidth; x++) {
           const idx = (y * screenWidth + x) * 3;
-          const r = Math.max(0, Math.min(255, work[idx]));
-          const g = Math.max(0, Math.min(255, work[idx+1]));
-          const b = Math.max(0, Math.min(255, work[idx+2]));
+          const r = Math.max(0, Math.min(255, blockWork[idx]));
+          const g = Math.max(0, Math.min(255, blockWork[idx+1]));
+          const b = Math.max(0, Math.min(255, blockWork[idx+2]));
           counts[quantizeNearest(r, g, b, pal)]++;
         }
       }
@@ -1693,7 +1948,8 @@ function convert() {
       let fullPal;
       if (currentMode === 'atari-gr9') {
         const hue = parseInt($('atariHue').value) || 0;
-        fullPal = atariLumaPalette(hue);
+        const srgbPal = atariLumaPalette(hue);
+        fullPal = linearDither ? srgbToLinearPalette(srgbPal) : srgbPal;
         modeMeta.gr9Hue = hue;
       } else {
         fullPal = modeCfg.palettes[0];
@@ -1740,7 +1996,7 @@ function convert() {
         const bgLuma = 0;
         const fgIdx = (inkIdx % 16) * 8 + fgLuma;
         const bgIdx = (paperIdx % 16) * 8 + bgLuma;
-        const pal = PALETTE_ATARI;
+        const pal = linearDither ? srgbToLinearPalette(PALETTE_ATARI) : PALETTE_ATARI;
         numAttrCols = 1; numAttrRows = 1;
         bW = screenWidth; bH = screenHeight;
         blockColors = [[[pal[fgIdx], pal[bgIdx]]]];
@@ -1760,6 +2016,36 @@ function convert() {
       const by = Math.min(numAttrRows - 1, Math.floor(y / bH));
       return blockColors[by][bx];
     }, contentMask);
+
+    // Restore modeCfg.palettes — we only swapped in linearized copies for the
+    // dither pass, not for the app's persistent config.
+    modeCfg.palettes = origPalettes;
+
+    // Convert result and blockColors back to sRGB so downstream generators
+    // (which use sRGB palettes) and the preview see correct colors.
+    if (linearDither) {
+      for (let i = 0; i < resultPixels.length; i++) {
+        resultPixels[i] = Math.max(0, Math.min(255, Math.round(linearToSrgbChan(resultPixels[i]))));
+      }
+      // Map blockColors from linear back to nearest sRGB entries. Since they
+      // were originally picked from palettes, just re-pull the sRGB versions
+      // using indices where available. For branches that didn't set indices
+      // (user-picked already in sRGB since `modeCfg.palettes` was used both
+      // ways), recover by round-tripping.
+      for (let by = 0; by < blockColors.length; by++) {
+        for (let bx = 0; bx < blockColors[by].length; bx++) {
+          const bc = blockColors[by][bx];
+          if (!bc) continue;
+          for (let k = 0; k < bc.length; k++) {
+            bc[k] = [
+              Math.max(0, Math.min(255, Math.round(linearToSrgbChan(bc[k][0])))),
+              Math.max(0, Math.min(255, Math.round(linearToSrgbChan(bc[k][1])))),
+              Math.max(0, Math.min(255, Math.round(linearToSrgbChan(bc[k][2])))),
+            ];
+          }
+        }
+      }
+    }
 
     convertedPixels = resultPixels;
     convertedAttrs = attrs;
@@ -1801,6 +2087,9 @@ function convert() {
       scrBytes = generateQLMode8(resultPixels);
     } else if (currentMode === 'ql-mode4') {
       scrBytes = generateQLMode4(resultPixels);
+    } else {
+      // Custom user-defined mode: no binary generator. PNG/JPG export still works.
+      scrBytes = new Uint8Array(0);
     }
 
     // Render converted preview
@@ -1811,9 +2100,12 @@ function convert() {
     statusSize.textContent = `${scrBytes.length} bytes`;
 
     // Enable export buttons
+    const cfgForExport = MODES[currentMode] || MODES.standard;
     for (const id of ['exportBin','exportTap','exportPng1x','exportPng2x','exportPng4x','exportJpg1x','exportJpg2x','exportJpg4x']) {
       $(id).disabled = false;
     }
+    if (cfgForExport.custom) $('exportBin').disabled = true;
+    if (!cfgForExport.supportsTap) $('exportTap').disabled = true;
   }, 10);
 }
 
@@ -1948,6 +2240,47 @@ function applyGlobalDither(work, result, ditherMode, getColorsAt, contentMask) {
         result[idx]     = chosen[0];
         result[idx + 1] = chosen[1];
         result[idx + 2] = chosen[2];
+      }
+    }
+    return;
+  }
+
+  // Hilbert-curve error diffusion: traverse pixels along a Hilbert
+  // space-filling curve and forward the quantization error to the next pixel
+  // along the curve (plus small side weights to the two pixels before). This
+  // hides the directional artifacts of scanline Floyd-Steinberg.
+  if (ditherMode === 'hilbert-fs') {
+    const temp = new Float64Array(W * H * 3);
+    for (let i = 0; i < W * H * 3; i++) temp[i] = work[i];
+    const { order } = hilbertOrder(W, H);
+    for (let k = 0; k < order.length; k += 2) {
+      const x = order[k], y = order[k + 1];
+      const idx = (y * W + x) * 3;
+      const r = Math.max(0, Math.min(255, temp[idx]));
+      const g = Math.max(0, Math.min(255, temp[idx + 1]));
+      const b = Math.max(0, Math.min(255, temp[idx + 2]));
+      const colors = getColorsAt(x, y);
+      const ci = quantizeNearest(r, g, b, colors);
+      const chosen = colors[ci];
+      result[idx]     = chosen[0];
+      result[idx + 1] = chosen[1];
+      result[idx + 2] = chosen[2];
+      if (inContent(x, y)) {
+        const er = r - chosen[0];
+        const eg = g - chosen[1];
+        const eb = b - chosen[2];
+        // Spread error: 5/8 to next-in-curve, 2/8 to next+1, 1/8 to next+2.
+        const weights = [5/8, 2/8, 1/8];
+        for (let w = 0; w < 3; w++) {
+          const nk = k + 2 * (w + 1);
+          if (nk >= order.length) break;
+          const nx = order[nk], ny = order[nk + 1];
+          if (!inContent(nx, ny)) continue;
+          const nIdx = (ny * W + nx) * 3;
+          temp[nIdx]     += er * weights[w];
+          temp[nIdx + 1] += eg * weights[w];
+          temp[nIdx + 2] += eb * weights[w];
+        }
       }
     }
     return;
@@ -2407,6 +2740,19 @@ function renderConvertedPreview(pixels) {
   const dispH = Math.round(screenHeight * scale * stretchY);
   convertedCanvas.width = dispW;
   convertedCanvas.height = dispH;
+  // When not in 'fit' mode we disable the CSS max-sizing that would scale
+  // the canvas back down to fit the pane.
+  if (zoomLevel === 'fit') {
+    convertedCanvas.style.maxWidth = '';
+    convertedCanvas.style.maxHeight = '';
+    convertedCanvas.style.width = '';
+    convertedCanvas.style.height = '';
+  } else {
+    convertedCanvas.style.maxWidth = 'none';
+    convertedCanvas.style.maxHeight = 'none';
+    convertedCanvas.style.width = dispW + 'px';
+    convertedCanvas.style.height = dispH + 'px';
+  }
   const ctx = convertedCanvas.getContext('2d');
   ctx.imageSmoothingEnabled = false;
 
@@ -2425,6 +2771,16 @@ function renderConvertedPreview(pixels) {
   tempCanvas.getContext('2d').putImageData(imgData, 0, 0);
   // Nearest-neighbor stretch to aspect-corrected size
   ctx.drawImage(tempCanvas, 0, 0, dispW, dispH);
+
+  // Update A/B compare panes if active
+  if ($('showAB') && $('showAB').checked) {
+    renderABCompare();
+  }
+
+  // Update fullscreen canvas if open
+  if ($('fsOverlay') && $('fsOverlay').classList.contains('visible')) {
+    renderFullscreenCanvas();
+  }
 
   // Draw attribute grid overlay if enabled
   if ($('showGrid').checked) {
@@ -2446,6 +2802,7 @@ function renderConvertedPreview(pixels) {
 }
 
 function getPreviewScale() {
+  if (zoomLevel !== 'fit') return zoomLevel;
   // Auto-scale to fit available space, accounting for mode's pixel aspect ratio
   const modeCfg = MODES[currentMode] || MODES.standard;
   const { x: stretchX, y: stretchY } = stretchFactors(modeCfg.aspect);
@@ -2529,6 +2886,441 @@ $('exportPng4x').addEventListener('click', () => exportImage('png', 4));
 $('exportJpg1x').addEventListener('click', () => exportImage('jpg', 1));
 $('exportJpg2x').addEventListener('click', () => exportImage('jpg', 2));
 $('exportJpg4x').addEventListener('click', () => exportImage('jpg', 4));
+
+// ============================================================
+// CRT frame toggle
+// ============================================================
+function applyCRTFrame() {
+  const wrap = $('convertedWrap');
+  if (!wrap) return;
+  const on = $('crtFrame').checked;
+  $('crtScanlinesRow').style.display = on ? '' : 'none';
+  if (on) {
+    wrap.classList.add('crt-frame');
+    if ($('crtScanlines').checked) wrap.classList.add('scanlines');
+    else wrap.classList.remove('scanlines');
+    // Ensure a screen wrapper exists inside
+    if (!wrap.querySelector('.crt-screen')) {
+      const screen = document.createElement('div');
+      screen.className = 'crt-screen';
+      // Move the canvas + AB compare into it
+      while (wrap.firstChild) screen.appendChild(wrap.firstChild);
+      wrap.appendChild(screen);
+    }
+  } else {
+    wrap.classList.remove('crt-frame', 'scanlines');
+    const screen = wrap.querySelector('.crt-screen');
+    if (screen) {
+      while (screen.firstChild) wrap.appendChild(screen.firstChild);
+      screen.remove();
+    }
+  }
+}
+$('crtFrame').addEventListener('change', applyCRTFrame);
+$('crtScanlines').addEventListener('change', applyCRTFrame);
+
+// ============================================================
+// Zoom controls + fullscreen
+// ============================================================
+document.querySelectorAll('.zoom-btn[data-zoom]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const v = btn.getAttribute('data-zoom');
+    zoomLevel = v === 'fit' ? 'fit' : parseInt(v);
+    document.querySelectorAll('.zoom-btn[data-zoom]').forEach(b =>
+      b.classList.toggle('active', b === btn));
+    if (convertedPixels) renderConvertedPreview(convertedPixels);
+  });
+});
+
+function renderFullscreenCanvas() {
+  if (!convertedPixels) return;
+  const modeCfg = MODES[currentMode] || MODES.standard;
+  const { x: stretchX, y: stretchY } = stretchFactors(modeCfg.aspect);
+  const imgData = new ImageData(screenWidth, screenHeight);
+  for (let i = 0; i < screenWidth * screenHeight; i++) {
+    imgData.data[i * 4]     = convertedPixels[i * 3];
+    imgData.data[i * 4 + 1] = convertedPixels[i * 3 + 1];
+    imgData.data[i * 4 + 2] = convertedPixels[i * 3 + 2];
+    imgData.data[i * 4 + 3] = 255;
+  }
+  // Max size keeping aspect
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const physW = screenWidth * stretchX;
+  const physH = screenHeight * stretchY;
+  const s = Math.min(vw / physW, vh / physH);
+  const outW = Math.round(physW * s);
+  const outH = Math.round(physH * s);
+  const fs = $('fsCanvas');
+  fs.width = outW;
+  fs.height = outH;
+  const ctx = fs.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  const temp = document.createElement('canvas');
+  temp.width = screenWidth; temp.height = screenHeight;
+  temp.getContext('2d').putImageData(imgData, 0, 0);
+  ctx.drawImage(temp, 0, 0, outW, outH);
+}
+
+function openFullscreen() {
+  if (!convertedPixels) return;
+  $('fsOverlay').classList.add('visible');
+  renderFullscreenCanvas();
+}
+function closeFullscreen() {
+  $('fsOverlay').classList.remove('visible');
+}
+$('fullscreenBtn').addEventListener('click', openFullscreen);
+$('fsOverlay').addEventListener('click', closeFullscreen);
+window.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && $('fsOverlay').classList.contains('visible')) closeFullscreen();
+});
+window.addEventListener('resize', () => {
+  if ($('fsOverlay').classList.contains('visible')) renderFullscreenCanvas();
+});
+
+// ============================================================
+// A/B compare
+// ============================================================
+function settingsSummary() {
+  const parts = [];
+  parts.push(currentMode);
+  parts.push($('ditherMode').value);
+  const strat = $('colorStrategy').value;
+  if (strat === 'global') parts.push('global');
+  const b = parseInt($('brightness').value);
+  const c = parseInt($('contrast').value);
+  const s = parseInt($('saturation').value);
+  const g = parseInt($('gamma').value);
+  if (b) parts.push('b' + b);
+  if (c) parts.push('c' + c);
+  if (s !== 100) parts.push('s' + s);
+  if (g !== 100) parts.push('γ' + (g / 100).toFixed(2));
+  if ($('linearDither') && $('linearDither').checked) parts.push('linear');
+  const blur = parseFloat($('blockBlur').value) / 10;
+  if (blur > 0) parts.push('blur' + blur.toFixed(1));
+  return parts.join(' · ');
+}
+
+$('snapshotBtn').addEventListener('click', () => {
+  if (!convertedPixels) return;
+  const modeCfg = MODES[currentMode] || MODES.standard;
+  abSnapshot = {
+    pixels: new Uint8Array(convertedPixels),
+    w: screenWidth,
+    h: screenHeight,
+    aspect: modeCfg.aspect,
+    caption: settingsSummary(),
+  };
+  $('showAB').checked = true;
+  toggleABVisibility();
+  renderABCompare();
+});
+
+function toggleABVisibility() {
+  const on = $('showAB').checked && abSnapshot;
+  $('abCompare').style.display = on ? '' : 'none';
+  convertedCanvas.style.display = on ? 'none' : '';
+}
+$('showAB').addEventListener('change', () => {
+  toggleABVisibility();
+  if ($('showAB').checked) renderABCompare();
+});
+
+function drawPixelsToCanvas(canvas, pixels, w, h, aspect) {
+  const { x: stretchX, y: stretchY } = stretchFactors(aspect);
+  // Determine target display size: use available pane size, half width each
+  const wrap = canvas.closest('.ab-pane');
+  const paneW = wrap ? wrap.clientWidth : 300;
+  const paneH = wrap ? wrap.clientHeight || 400 : 400;
+  const physW = w * stretchX;
+  const physH = h * stretchY;
+  const s = Math.min((paneW - 4) / physW, (paneH - 30) / physH);
+  const scale = Math.max(1, Math.floor(s));
+  const dispW = Math.round(physW * scale);
+  const dispH = Math.round(physH * scale);
+  canvas.width = dispW;
+  canvas.height = dispH;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  const imgData = new ImageData(w, h);
+  for (let i = 0; i < w * h; i++) {
+    imgData.data[i * 4]     = pixels[i * 3];
+    imgData.data[i * 4 + 1] = pixels[i * 3 + 1];
+    imgData.data[i * 4 + 2] = pixels[i * 3 + 2];
+    imgData.data[i * 4 + 3] = 255;
+  }
+  const temp = document.createElement('canvas');
+  temp.width = w; temp.height = h;
+  temp.getContext('2d').putImageData(imgData, 0, 0);
+  ctx.drawImage(temp, 0, 0, dispW, dispH);
+}
+
+function renderABCompare() {
+  if (!abSnapshot || !convertedPixels) return;
+  drawPixelsToCanvas($('abSnapshotCanvas'),
+                     abSnapshot.pixels, abSnapshot.w, abSnapshot.h, abSnapshot.aspect);
+  const modeCfg = MODES[currentMode] || MODES.standard;
+  drawPixelsToCanvas($('abLiveCanvas'),
+                     convertedPixels, screenWidth, screenHeight, modeCfg.aspect);
+  $('abSnapshotCaption').textContent = 'A: ' + abSnapshot.caption;
+  $('abLiveCaption').textContent = 'B: ' + settingsSummary();
+}
+
+// ============================================================
+// Profile import/export
+// ============================================================
+function getCurrentProfile() {
+  return {
+    version: 1,
+    mode: currentMode,
+    ditherMode: $('ditherMode').value,
+    colorStrategy: $('colorStrategy').value,
+    brightness: parseInt($('brightness').value),
+    contrast: parseInt($('contrast').value),
+    saturation: parseInt($('saturation').value),
+    gamma: parseInt($('gamma').value),
+    hiresPair: $('hiresPair').value,
+    atariHue: $('atariHue').value,
+    inkColor: $('inkColor').value,
+    paperColor: $('paperColor').value,
+    hiresBright: $('hiresBright').value,
+    lockAspect: $('lockAspect').checked,
+    showGrid: $('showGrid').checked,
+    crtFrame: $('crtFrame').checked,
+    crtScanlines: $('crtScanlines').checked,
+    linearDither: $('linearDither').checked,
+    blockBlur: parseInt($('blockBlur').value),
+    disabledColors: Object.fromEntries(
+      Object.entries(disabledColors).map(([k, v]) => [k, [...v]])
+    ),
+    cropRect: cropRect ? { ...cropRect } : null,
+  };
+}
+
+function applyProfile(p) {
+  if (!p) return;
+  const set = (id, val) => { if (val != null && $(id)) $(id).value = val; };
+  if (p.mode && (MODES[p.mode])) { $('displayMode').value = p.mode; currentMode = p.mode; }
+  set('ditherMode', p.ditherMode);
+  set('colorStrategy', p.colorStrategy);
+  set('brightness', p.brightness);
+  set('contrast', p.contrast);
+  set('saturation', p.saturation);
+  set('gamma', p.gamma);
+  set('hiresPair', p.hiresPair);
+  set('atariHue', p.atariHue);
+  set('inkColor', p.inkColor);
+  set('paperColor', p.paperColor);
+  set('hiresBright', p.hiresBright);
+  set('blockBlur', p.blockBlur);
+  if (p.lockAspect != null) { $('lockAspect').checked = !!p.lockAspect; cropAspectLocked = !!p.lockAspect; }
+  if (p.showGrid != null) $('showGrid').checked = !!p.showGrid;
+  if (p.crtFrame != null) $('crtFrame').checked = !!p.crtFrame;
+  if (p.crtScanlines != null) $('crtScanlines').checked = !!p.crtScanlines;
+  if (p.linearDither != null) $('linearDither').checked = !!p.linearDither;
+  if (p.disabledColors) {
+    for (const k in disabledColors) delete disabledColors[k];
+    for (const [mk, arr] of Object.entries(p.disabledColors)) {
+      disabledColors[mk] = new Set(arr);
+    }
+  }
+  if (p.cropRect && sourceImage) {
+    cropRect = { ...p.cropRect };
+  }
+  // Update display values
+  $('brightnessVal').textContent = $('brightness').value;
+  $('contrastVal').textContent = $('contrast').value;
+  $('saturationVal').textContent = $('saturation').value;
+  $('gammaVal').textContent = (parseInt($('gamma').value) / 100).toFixed(2);
+  $('blockBlurVal').textContent = (parseInt($('blockBlur').value) / 10).toFixed(1);
+  updateModeUI();
+  initPaletteStrip();
+  applyCRTFrame();
+  if (sourceImage) { renderCropOverlay(); convert(); }
+}
+
+$('exportProfileBtn').addEventListener('click', () => {
+  const profile = getCurrentProfile();
+  const blob = new Blob([JSON.stringify(profile, null, 2)], { type: 'application/json' });
+  downloadBlob(blob, 'profile.json');
+});
+
+$('importProfileBtn').addEventListener('click', () => $('profileFileInput').click());
+$('profileFileInput').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const p = JSON.parse(ev.target.result);
+      applyProfile(p);
+      statusText.textContent = 'Profile imported.';
+    } catch (err) {
+      alert('Failed to parse profile: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+});
+
+// Custom-mode import
+$('importModesBtn').addEventListener('click', () => $('modesFileInput').click());
+$('modesFileInput').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const parsed = JSON.parse(ev.target.result);
+      const modesObj = parsed.modes || parsed;
+      let added = 0;
+      for (const [name, cfg] of Object.entries(modesObj)) {
+        const required = ['w', 'h', 'aspect', 'blockW', 'blockH', 'colorsPerBlock', 'palettes', 'searchStrategy', 'label', 'ext'];
+        const missing = required.filter(k => cfg[k] == null);
+        if (missing.length) {
+          console.warn('Skipping custom mode "' + name + '" — missing: ' + missing.join(', '));
+          continue;
+        }
+        MODES[name] = { ...cfg, custom: true, supportsTap: false };
+        customModeNames.add(name);
+        added++;
+      }
+      rebuildModeSelect();
+      if (parsed.settings) applyProfile(parsed.settings);
+      statusText.textContent = 'Imported ' + added + ' custom mode(s).';
+    } catch (err) {
+      alert('Failed to parse modes JSON: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+});
+
+function rebuildModeSelect() {
+  const sel = $('displayMode');
+  // Remove existing "Custom" group if any
+  const existing = sel.querySelector('optgroup[label="Custom"]');
+  if (existing) existing.remove();
+  if (customModeNames.size === 0) return;
+  const og = document.createElement('optgroup');
+  og.label = 'Custom';
+  for (const name of customModeNames) {
+    const cfg = MODES[name];
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = (cfg.label || name) + ' (' + cfg.w + '×' + cfg.h + ')';
+    og.appendChild(opt);
+  }
+  sel.appendChild(og);
+}
+
+// ============================================================
+// sRGB <-> linear helpers and block pre-blur
+// ============================================================
+function srgbToLinearChan(v) {
+  const s = v / 255;
+  const lin = s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  return lin * 255; // keep on same 0..255 scale so colorDist weights stay sane
+}
+function linearToSrgbChan(v) {
+  const lin = v / 255;
+  const s = lin <= 0.0031308 ? lin * 12.92 : 1.055 * Math.pow(Math.max(0, lin), 1/2.4) - 0.055;
+  return s * 255;
+}
+function srgbToLinearPalette(pal) {
+  return pal.map(c => [srgbToLinearChan(c[0]), srgbToLinearChan(c[1]), srgbToLinearChan(c[2])]);
+}
+
+function gaussianKernel1D(radius) {
+  const sigma = Math.max(0.5, radius / 2);
+  const r = Math.ceil(radius);
+  const k = new Float64Array(2 * r + 1);
+  let sum = 0;
+  for (let i = -r; i <= r; i++) {
+    const v = Math.exp(-(i * i) / (2 * sigma * sigma));
+    k[i + r] = v;
+    sum += v;
+  }
+  for (let i = 0; i < k.length; i++) k[i] /= sum;
+  return { kernel: k, radius: r };
+}
+
+function gaussianBlur(src, W, H, radius) {
+  if (radius <= 0) return src;
+  const { kernel, radius: r } = gaussianKernel1D(radius);
+  const tmp = new Float64Array(src.length);
+  const out = new Float64Array(src.length);
+  // Horizontal
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      let sr = 0, sg = 0, sb = 0;
+      for (let k = -r; k <= r; k++) {
+        let xi = x + k;
+        if (xi < 0) xi = 0; else if (xi >= W) xi = W - 1;
+        const i = (y * W + xi) * 3;
+        const w = kernel[k + r];
+        sr += src[i] * w; sg += src[i+1] * w; sb += src[i+2] * w;
+      }
+      const o = (y * W + x) * 3;
+      tmp[o] = sr; tmp[o+1] = sg; tmp[o+2] = sb;
+    }
+  }
+  // Vertical
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      let sr = 0, sg = 0, sb = 0;
+      for (let k = -r; k <= r; k++) {
+        let yi = y + k;
+        if (yi < 0) yi = 0; else if (yi >= H) yi = H - 1;
+        const i = (yi * W + x) * 3;
+        const w = kernel[k + r];
+        sr += tmp[i] * w; sg += tmp[i+1] * w; sb += tmp[i+2] * w;
+      }
+      const o = (y * W + x) * 3;
+      out[o] = sr; out[o+1] = sg; out[o+2] = sb;
+    }
+  }
+  return out;
+}
+
+// ============================================================
+// Hilbert curve generation (power-of-2 order) and mapping
+// ============================================================
+// Returns an Int32Array of length N*N*2 with (x,y) pairs along the curve,
+// where N is the smallest power of 2 >= max(W, H).
+function hilbertOrder(W, H) {
+  let N = 1;
+  while (N < W || N < H) N *= 2;
+  // Rotate a 2x2 block
+  function rot(n, x, y, rx, ry) {
+    if (ry === 0) {
+      if (rx === 1) { x = n - 1 - x; y = n - 1 - y; }
+      return [y, x];
+    }
+    return [x, y];
+  }
+  function d2xy(n, d) {
+    let rx, ry, t = d;
+    let x = 0, y = 0;
+    for (let s = 1; s < n; s *= 2) {
+      rx = 1 & (t >> 1);
+      ry = 1 & (t ^ rx);
+      [x, y] = rot(s, x, y, rx, ry);
+      x += s * rx;
+      y += s * ry;
+      t = t >> 2;
+    }
+    return [x, y];
+  }
+  const total = N * N;
+  const out = [];
+  for (let d = 0; d < total; d++) {
+    const [x, y] = d2xy(N, d);
+    if (x < W && y < H) out.push(x, y);
+  }
+  return { order: out, size: N };
+}
 
 })();
 </script>
