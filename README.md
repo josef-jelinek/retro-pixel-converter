@@ -42,10 +42,11 @@ Error-diffusion dithers propagate across block boundaries globally (critical for
 
 ## Color search strategies
 
-- **Exhaustive per-block** — try all N-combinations of palette colors per block (ZX, TS 2068 ECM, C64)
-- **Global pre-quantize** — frequency-based for modes where exhaustive is infeasible (Atari GR.15 picks 4 of 128)
-- **Pixel-direct** — 1×1 blocks with no search; dither each pixel to the full palette (QL, Atari GR.9)
-- **User-picked** — monochrome and hardware-constrained modes (TS 2068 64-col, Atari GR.8)
+- **Per-block best-fit** — try all N-combinations of palette colors per block, score each by actually running the chosen dither and measuring pixel error. Highest quality but slowest (ZX, TS 2068 ECM, C64).
+- **Weighted average pair fit** (contributed by Josef Jelinek) — for each candidate ink/paper pair, find the blend ratio of the two whose result is closest to the block's average color; pick the pair whose best blend matches best. Visually comparable to per-block best-fit but ~10× faster by skipping the explicit dither-and-measure step. Strong default for ZX Spectrum / ECM on large images.
+- **Global pre-quantize** — frequency-based counting for modes where exhaustive is infeasible (Atari GR.15 picks 4 of 128), or as a fast fallback on other modes. Can produce minor artifacts on gradients.
+- **Pixel-direct** — 1×1 blocks with no search; dither each pixel to the full palette (QL, Atari GR.9).
+- **User-picked** — monochrome and hardware-constrained modes (TS 2068 64-col, Atari GR.8).
 
 For threshold-based dithers (Bayer, blue noise, halftone, yliluoma), the per-block search is nudged toward distinct ink/paper pairs on non-uniform blocks so gradients actually dither instead of quantizing flat.
 
