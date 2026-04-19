@@ -1868,6 +1868,74 @@ function convert() {
                 }
               }
             }
+          } else if (colorStrategy === 'pca') {
+            // PCA-based pick: find the dominant color-variance axis for the
+            // block and use its extremes as ink/paper targets. Great on
+            // blocks with a clear gradient direction (skin, sky, edges).
+            // Power-iteration for the top eigenvector of the 3×3 RGB
+            // covariance matrix (10 steps is plenty).
+            let mr = 0, mg = 0, mb = 0, n = 0;
+            for (let py = 0; py < bH; py++) {
+              for (let px = 0; px < bW; px++) {
+                const idx = ((blockY + py) * screenWidth + (blockX + px)) * 3;
+                mr += blockWork[idx]; mg += blockWork[idx+1]; mb += blockWork[idx+2];
+                n++;
+              }
+            }
+            mr /= n; mg /= n; mb /= n;
+            let c00=0,c01=0,c02=0,c11=0,c12=0,c22=0;
+            for (let py = 0; py < bH; py++) {
+              for (let px = 0; px < bW; px++) {
+                const idx = ((blockY + py) * screenWidth + (blockX + px)) * 3;
+                const dr = blockWork[idx] - mr;
+                const dg = blockWork[idx+1] - mg;
+                const db = blockWork[idx+2] - mb;
+                c00 += dr*dr; c01 += dr*dg; c02 += dr*db;
+                c11 += dg*dg; c12 += dg*db; c22 += db*db;
+              }
+            }
+            // Power iteration
+            let vx = 1, vy = 1, vz = 1;
+            for (let it = 0; it < 10; it++) {
+              const nx = c00*vx + c01*vy + c02*vz;
+              const ny = c01*vx + c11*vy + c12*vz;
+              const nz = c02*vx + c12*vy + c22*vz;
+              const mag = Math.sqrt(nx*nx + ny*ny + nz*nz) || 1;
+              vx = nx / mag; vy = ny / mag; vz = nz / mag;
+            }
+            // Project pixels onto axis; track min/max and their RGB centroids
+            let tmin = Infinity, tmax = -Infinity;
+            let minR=0,minG=0,minB=0,maxR=0,maxG=0,maxB=0;
+            for (let py = 0; py < bH; py++) {
+              for (let px = 0; px < bW; px++) {
+                const idx = ((blockY + py) * screenWidth + (blockX + px)) * 3;
+                const dr = blockWork[idx] - mr;
+                const dg = blockWork[idx+1] - mg;
+                const db = blockWork[idx+2] - mb;
+                const t = dr*vx + dg*vy + db*vz;
+                if (t < tmin) { tmin = t; minR = blockWork[idx]; minG = blockWork[idx+1]; minB = blockWork[idx+2]; }
+                if (t > tmax) { tmax = t; maxR = blockWork[idx]; maxG = blockWork[idx+1]; maxB = blockWork[idx+2]; }
+              }
+            }
+            // Find nearest palette entries (respecting bright + disabled)
+            for (let bright = 0; bright <= 1; bright++) {
+              const pal = modeCfg.palettes[bright];
+              // Nearest to min and max, filtering disabled
+              let lowIdx = 0, lowD = Infinity, hiIdx = 0, hiD = Infinity;
+              for (let i = 0; i < 8; i++) {
+                if (isColorDisabled(currentMode, bright, i)) continue;
+                const d0 = colorDist([minR, minG, minB], pal[i]);
+                if (d0 < lowD) { lowD = d0; lowIdx = i; }
+                const d1 = colorDist([maxR, maxG, maxB], pal[i]);
+                if (d1 < hiD) { hiD = d1; hiIdx = i; }
+              }
+              if (requireDistinct && lowIdx === hiIdx) continue;
+              const err = evaluateBlock(blockWork, blockX, blockY, bW, bH,
+                                        [pal[lowIdx], pal[hiIdx]], ditherMode);
+              if (err < bestError) {
+                bestError = err; bestInk = lowIdx; bestPaper = hiIdx; bestBright = bright;
+              }
+            }
           } else if (colorStrategy === 'weighted-average') {
             const result = [0, 0];
             for (let bright = 0; bright <= 1; bright++) {
