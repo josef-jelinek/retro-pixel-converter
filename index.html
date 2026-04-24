@@ -1582,7 +1582,7 @@ function recommendSettings(analysis, mode) {
   const pixelDirect = new Set(['atari-gr9', 'ql-mode8', 'ql-mode4']);
   const globalPrequant = new Set(['atari-gr15']);
   const c64Modes = new Set(['c64-hires', 'c64-koala']);
-  if (monoModes.has(mode) || pixelDirect.has(mode) || globalPrequant.has(mode) || c64Modes.has(mode)) {
+  if (monoModes.has(mode) || pixelDirect.has(mode) || globalPrequant.has(mode)) {
     dither = 'floyd-steinberg';
     strategy = 'weighted-average';
   } else if (c64Modes.has(mode)) {
@@ -1634,10 +1634,11 @@ function renderCropOverlay() {
   // Apply the same brightness/contrast/saturation/gamma adjustments the
   // conversion pipeline will use, so the source preview matches the
   // pre-dither input the user sees.
-  const brightnessAdj = parseInt($('brightness').value) ?? 0;
-  const contrastAdj = parseInt($('contrast').value) ?? 0;
-  const saturationAdj = (parseInt($('saturation').value) ?? 100) / 100;
-  const gammaValue = (parseInt($('gamma').value) ?? 100) / 100;
+  const brightnessAdj = parseInt($('brightness').value) || 0;
+  const contrastAdj = parseInt($('contrast').value) || 0;
+  const saturationVal = parseInt($('saturation').value);
+  const saturationAdj = Number.isFinite(saturationVal) ? saturationVal / 100 : 1;
+  const gammaValue = (parseInt($('gamma').value) || 100) / 100;
   const invGamma = 1 / gammaValue;
   if (brightnessAdj !== 0 || contrastAdj !== 0 || saturationAdj !== 1 || gammaValue !== 1) {
     const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
