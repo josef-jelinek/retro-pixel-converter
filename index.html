@@ -576,6 +576,9 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
           <option value="ql-mode8">QL Mode 8 / Low Res (256×256, 8col)</option>
           <option value="ql-mode4">QL Mode 4 / High Res (512×256, 4col)</option>
         </optgroup>
+        <optgroup label="Pico-8">
+          <option value="pico8">Standard palette (128×128, 16col)</option>
+        </optgroup>
       </select>
     </div>
 
@@ -1006,6 +1009,25 @@ function atariLumaPalette(hue) {
   return pal;
 }
 
+const PALETTE_PICO8 = [
+  [0x00, 0x00, 0x00], // black
+  [0x1D, 0x2B, 0x53], // dark-blue
+  [0x7E, 0x25, 0x53], // dark-purple
+  [0x00, 0x87, 0x51], // dark-green
+  [0xAB, 0x52, 0x36], // brown
+  [0x5F, 0x57, 0x4F], // dark-grey
+  [0xC2, 0xC3, 0xC7], // light-grey
+  [0xFF, 0xF1, 0xE8], // white
+  [0xFF, 0x00, 0x4D], // red
+  [0xFF, 0xA3, 0x00], // orange
+  [0xFF, 0xEC, 0x27], // yellow
+  [0x00, 0xE4, 0x36], // green
+  [0x29, 0xAD, 0xFF], // blue
+  [0x83, 0x76, 0x9C], // lavender
+  [0xFF, 0x77, 0xA8], // pink
+  [0xFF, 0xCC, 0xAA], // light-peach
+];
+
 // --- Perceptual Color Distance ---
 // Default: weighted Euclidean RGB (fast). BT.601-ish weights: green > red > blue.
 // Optional: OkLab (Björn Ottosson, 2020) — perceptually linear. Slower but
@@ -1013,16 +1035,13 @@ function atariLumaPalette(hue) {
 let useOklab = false;
 const _oklabCache = new Map(); // key: (r<<16)|(g<<8)|b -> Float64Array(3)
 
-function _srgbToLinearComp(c) {
-  c = c / 255;
-  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-}
-
 function rgbToOklab(r, g, b) {
+  // TODO split the code to process linear and sRGB color spaces differently
+  // as it currently assumes sRGB.
   const key = ((r | 0) << 16) | ((g | 0) << 8) | (b | 0);
   const cached = _oklabCache.get(key);
   if (cached) return cached;
-  const lr = _srgbToLinearComp(r), lg = _srgbToLinearComp(g), lb = _srgbToLinearComp(b);
+  const lr = srgbToLinear(r), lg = srgbToLinear(g), lb = srgbToLinear(b);
   const l = 0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb;
   const m = 0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb;
   const s = 0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb;
@@ -1044,10 +1063,15 @@ function colorDist(a, b) {
     const dL = la[0] - lb[0], da = la[1] - lb[1], db2 = la[2] - lb[2];
     return (dL * dL + da * da + db2 * db2) * 500000;
   }
+  // Redmean squared metric is a common approximation for sRGB colors.
+  // It is more accurate than simpler squared weighted Euclidean.
+  // It emphasizes red for higher intensity, but enhances blue for
+  // lower intensity, where eyes are more sensitive to blue than red.
+  const mr = (a[0] + b[0]) / 512; // Average red in the 0..1-ish range.
   const dr = a[0] - b[0];
   const dg = a[1] - b[1];
   const db = a[2] - b[2];
-  return 3 * dr * dr + 4 * dg * dg + 2 * db * db;
+  return (2 + mr) * dr * dr + 4 * dg * dg + (3 - mr) * db * db;
 }
 
 function nearestSpectrumColor(r, g, b) {
@@ -1267,6 +1291,15 @@ const MODES = {
     colorful: true, label: 'ql-mode4',
     ext: '_scr', supportsTap: false,
   },
+  pico8: {
+    w: 128, h: 128, aspect: 1,
+    blockW: 1, blockH: 1, colorsPerBlock: 16,
+    palettes: [PALETTE_PICO8],
+    mandatoryColor: null,
+    searchStrategy: 'pixel-direct',
+    colorful: true, label: 'pico8',
+    ext: 'bin', supportsTap: false,
+  },
 };
 
 // Generator for N-combinations of indices [0..paletteSize-1].
@@ -1356,7 +1389,7 @@ function enabledColorMasks(mode) {
 }
 
 function paletteStripEntries(mode) {
-  const cfg = MODES[mode] || MODES.standard;
+  const cfg = MODES[mode] ?? MODES.standard;
   const out = [];
   if (mode === 'atari-gr9') {
     const hue = parseInt(($('atariHue') && $('atariHue').value) || '0');
@@ -1552,6 +1585,9 @@ function recommendSettings(analysis, mode) {
   if (monoModes.has(mode) || pixelDirect.has(mode) || globalPrequant.has(mode) || c64Modes.has(mode)) {
     dither = 'floyd-steinberg';
     strategy = 'weighted-average';
+  } else if (c64Modes.has(mode)) {
+    dither = 'floyd-steinberg';
+    strategy = 'per-block';
   }
   return { dither, strategy };
 }
@@ -1598,10 +1634,10 @@ function renderCropOverlay() {
   // Apply the same brightness/contrast/saturation/gamma adjustments the
   // conversion pipeline will use, so the source preview matches the
   // pre-dither input the user sees.
-  const brightnessAdj = parseInt($('brightness').value) || 0;
-  const contrastAdj = parseInt($('contrast').value) || 0;
-  const saturationAdj = (parseInt($('saturation').value) || 100) / 100;
-  const gammaValue = (parseInt($('gamma').value) || 100) / 100;
+  const brightnessAdj = parseInt($('brightness').value) ?? 0;
+  const contrastAdj = parseInt($('contrast').value) ?? 0;
+  const saturationAdj = (parseInt($('saturation').value) ?? 100) / 100;
+  const gammaValue = (parseInt($('gamma').value) ?? 100) / 100;
   const invGamma = 1 / gammaValue;
   if (brightnessAdj !== 0 || contrastAdj !== 0 || saturationAdj !== 1 || gammaValue !== 1) {
     const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -1772,7 +1808,7 @@ window.addEventListener('mousemove', e => {
       'ne': 'nesw-resize', 'sw': 'nesw-resize',
       'move': 'move'
     };
-    originalCanvas.style.cursor = cursors[target] || 'default';
+    originalCanvas.style.cursor = cursors[target] ?? 'default';
   }
 });
 
@@ -1821,7 +1857,7 @@ for (const id of ['displayMode', 'ditherMode', 'colorStrategy', 'hiresPair', 'in
 
 function updateModeUI() {
   const mode = $('displayMode').value;
-  const cfg = MODES[mode] || MODES.standard;
+  const cfg = MODES[mode] ?? MODES.standard;
   $('hiresColorsGroup').style.display = (mode === 'hires' || mode === 'atari-gr8') ? '' : 'none';
   $('colorStrategyGroup').style.display = cfg.searchStrategy === 'exhaustive' ? '' : 'none';
   $('atariHueGroup').style.display = mode === 'atari-gr9' ? '' : 'none';
@@ -1888,6 +1924,10 @@ function isErrorDiffusion(mode) {
   return mode in DIFFUSION_KERNELS || mode === 'hilbert-fs';
 }
 
+// Throttle triggering of convert by dropping the requests coming less than 50ms apart.
+const convertTimeoutMs = 50;
+let convertTimeoutId = undefined;
+
 // --- Main conversion pipeline ---
 function convert() {
   currentMode = $('displayMode').value;
@@ -1909,8 +1949,13 @@ function convert() {
 
   statusText.textContent = 'Converting...';
 
+  if (convertTimeoutId !== undefined) {
+    clearTimeout(convertTimeoutId);
+  }
+
   // Use setTimeout to keep UI responsive
-  setTimeout(() => {
+  convertTimeoutId = setTimeout(() => {
+    convertTimeoutId = undefined;
     const t0 = performance.now();
 
     // Step A: Scale source image to target resolution
@@ -1998,7 +2043,7 @@ function convert() {
     // errors accumulate in a perceptually-linear space. We also linearize the
     // mode palette and convert the result back to sRGB at the end.
     if (linearDither) {
-      for (let i = 0; i < work.length; i++) work[i] = srgbToLinearChan(work[i]);
+      for (let i = 0; i < work.length; i++) work[i] = 255 * srgbToLinear(work[i]);
     }
     // Swap in linearized palettes transparently
     const origPalettes = modeCfg.palettes;
@@ -2052,6 +2097,7 @@ function convert() {
       blockColors[by] = new Array(numAttrCols);
       blockIndices[by] = new Array(numAttrCols);
     }
+    const colorMasks = enabledColorMasks(currentMode);
 
     if (strategy === 'exhaustive' && (currentMode === 'standard' || currentMode === 'ecm')) {
       attrs = new Uint8Array(numAttrCols * numAttrRows);
@@ -2060,7 +2106,6 @@ function convert() {
       // palette colour that's close to the block's mean and flattens the
       // dither. We allow ink==paper for uniform blocks (no dither needed).
       const isThreshold = isThresholdDither(ditherMode);
-      const colorMasks = enabledColorMasks(currentMode);
       for (let by = 0; by < numAttrRows; by++) {
         for (let bx = 0; bx < numAttrCols; bx++) {
           const blockX = bx * bW, blockY = by * bH;
@@ -2167,7 +2212,7 @@ function convert() {
             for (let bright = 0; bright <= 1; bright++) {
               const pal = modeCfg.palettes[bright];
               const colorMask = colorMasks[bright];
-              const err = getBestWeightedColorPair(result, work, blockX, blockY, bW, bH, pal, colorMask);
+              const err = getBestWeightedColorPair(result, blockWork, blockX, blockY, bW, bH, pal, colorMask);
               if (err < bestError) {
                 bestError = err;
                 bestPaper = result[0];
@@ -2185,7 +2230,7 @@ function convert() {
                 const b = Math.max(0, Math.min(255, blockWork[idx+2]));
                 const nearest = nearestSpectrumColor(r, g, b);
                 const key = nearest.bright * 8 + nearest.index;
-                colorCounts.set(key, (colorCounts.get(key) || 0) + 1);
+                colorCounts.set(key, (colorCounts.get(key) ?? 0) + 1);
               }
             }
             const sorted = [...colorCounts.entries()].sort((a, b) => b[1] - a[1]);
@@ -2217,18 +2262,26 @@ function convert() {
         }
       }
     } else if (strategy === 'exhaustive' && currentMode === 'c64-hires') {
-      const pal = linearDither ? srgbToLinearPalette(PALETTE_C64) : PALETTE_C64;
+      const pal = modeCfg.palettes[0];
+      const colorMask = colorMasks[0];
       attrs = new Uint8Array(numAttrCols * numAttrRows); // screen RAM
       for (let by = 0; by < numAttrRows; by++) {
         for (let bx = 0; bx < numAttrCols; bx++) {
           const blockX = bx * bW, blockY = by * bH;
           let bestA = 0, bestB = 1, bestError = Infinity;
-          for (const combo of generateCombinations(16, 2, null)) {
-            if (isColorDisabled(currentMode, 0, combo[0])) continue;
-            if (isColorDisabled(currentMode, 0, combo[1])) continue;
-            const err = evaluateBlock(blockWork, blockX, blockY, bW, bH,
-                                       [pal[combo[0]], pal[combo[1]]], ditherMode);
-            if (err < bestError) { bestError = err; bestA = combo[0]; bestB = combo[1]; }
+          if (colorStrategy === 'weighted-average') {
+            const result = [0, 0];
+            getBestWeightedColorPair(result, blockWork, blockX, blockY, bW, bH, pal, colorMask);
+            bestA = result[0];
+            bestB = result[1];
+          } else { // TODO handle other available color picking modes
+            for (const combo of generateCombinations(16, 2, null)) {
+              if (isColorDisabled(currentMode, 0, combo[0])) continue;
+              if (isColorDisabled(currentMode, 0, combo[1])) continue;
+              const colors = [pal[combo[0]], pal[combo[1]]];
+              const err = evaluateBlock(blockWork, blockX, blockY, bW, bH, colors, ditherMode);
+              if (err < bestError) { bestError = err; bestA = combo[0]; bestB = combo[1]; }
+            }
           }
           blockColors[by][bx] = [pal[bestA], pal[bestB]];
           blockIndices[by][bx] = [bestA, bestB];
@@ -2237,7 +2290,7 @@ function convert() {
         }
       }
     } else if (strategy === 'exhaustive' && currentMode === 'c64-koala') {
-      const pal = linearDither ? srgbToLinearPalette(PALETTE_C64) : PALETTE_C64;
+      const pal = modeCfg.palettes[0];
       // Phase 1: auto-pick shared background.
       // For speed, sample a stride of blocks with a nearest-color error proxy.
       let bestBg = 0, bestBgErr = Infinity;
@@ -2525,7 +2578,7 @@ function convert() {
       }
       // Threshold: top-quartile by error (block is "hard")
       const sorted = Array.from(blockErr).sort((a,b) => a - b);
-      const threshold = sorted[Math.floor(sorted.length * 0.75)] || 0;
+      const threshold = sorted[Math.floor(sorted.length * 0.75)] ?? 0;
 
       for (let iter = 0; iter < 3; iter++) {
         let changed = 0;
@@ -2588,9 +2641,11 @@ function convert() {
 
     // Convert result and blockColors back to sRGB so downstream generators
     // (which use sRGB palettes) and the preview see correct colors.
+    // This can be also done by resolving the palette indices into the original
+    // sRGB palette entries.
     if (linearDither) {
       for (let i = 0; i < resultPixels.length; i++) {
-        resultPixels[i] = Math.max(0, Math.min(255, Math.round(linearToSrgbChan(resultPixels[i]))));
+        resultPixels[i] = Math.max(0, Math.min(255, Math.round(linearToSrgb(resultPixels[i] / 255))));
       }
       // Map blockColors from linear back to nearest sRGB entries. Since they
       // were originally picked from palettes, just re-pull the sRGB versions
@@ -2603,19 +2658,22 @@ function convert() {
           if (!bc) continue;
           for (let k = 0; k < bc.length; k++) {
             bc[k] = [
-              Math.max(0, Math.min(255, Math.round(linearToSrgbChan(bc[k][0])))),
-              Math.max(0, Math.min(255, Math.round(linearToSrgbChan(bc[k][1])))),
-              Math.max(0, Math.min(255, Math.round(linearToSrgbChan(bc[k][2])))),
+              Math.max(0, Math.min(255, Math.round(linearToSrgb(bc[k][0] / 255)))),
+              Math.max(0, Math.min(255, Math.round(linearToSrgb(bc[k][1] / 255)))),
+              Math.max(0, Math.min(255, Math.round(linearToSrgb(bc[k][2] / 255)))),
             ];
           }
         }
       }
     }
 
+    const elapsedForImageProcessing = (performance.now() - t0).toFixed(0);
+
     convertedPixels = resultPixels;
     convertedAttrs = attrs;
 
     // Generate binary + TAP blocks for current mode
+    // TODO Generate output data on demand, not every render, and allow multiple formats
     tapBlocks = null;
     if (currentMode === 'standard') {
       scrBytes = generateStandardScreen(resultPixels, attrs);
@@ -2652,6 +2710,8 @@ function convert() {
       scrBytes = generateQLMode8(resultPixels);
     } else if (currentMode === 'ql-mode4') {
       scrBytes = generateQLMode4(resultPixels);
+    } else if (currentMode === 'pico8') {
+      scrBytes = generatePico8Bin(resultPixels);
     } else {
       // Custom user-defined mode: no binary generator. PNG/JPG export still works.
       scrBytes = new Uint8Array(0);
@@ -2660,20 +2720,22 @@ function convert() {
     // Render converted preview
     renderConvertedPreview(resultPixels);
 
+    // This includes not only converting the image to its simplified form,
+    // but also converting it to the output format.
     const elapsed = (performance.now() - t0).toFixed(0);
     let extra = '';
     if (modeMeta.gsIters) extra = ` — GS ${modeMeta.gsIters} iter(s), ${modeMeta.gsUpgraded} block(s) upgraded`;
-    statusText.textContent = `Converted in ${elapsed}ms (${currentMode})${extra}`;
+    statusText.textContent = `Converted in ${elapsed}ms (${elapsedForImageProcessing}ms image processing) (${currentMode})${extra}`;
     statusSize.textContent = `${scrBytes.length} bytes`;
 
     // Enable export buttons
-    const cfgForExport = MODES[currentMode] || MODES.standard;
+    const cfgForExport = MODES[currentMode] ?? MODES.standard;
     for (const id of ['exportBin','exportTap','exportPng1x','exportPng2x','exportPng4x','exportJpg1x','exportJpg2x','exportJpg4x']) {
       $(id).disabled = false;
     }
     if (cfgForExport.custom) $('exportBin').disabled = true;
     if (!cfgForExport.supportsTap) $('exportTap').disabled = true;
-  }, 10);
+  }, convertTimeoutMs);
 }
 
 // --- Find nearest palette color to given RGB ---
@@ -3243,6 +3305,46 @@ function generateQLMode4(pixels) {
   return out;
 }
 
+// Pico-8 screen memory dump 64 bytes per row, 128 rows.
+// Two adjacent pixel colors are encoded into a single byte with
+// left pixel encoded in 4 least significant bits.
+function generatePico8Bin(pixels) {
+  const pal = PALETTE_PICO8;
+  const out = new Uint8Array(64 * 128);
+  let oi = 0;
+  for (let y = 0; y < 128; y++) {
+    for (let x = 0; x < 128; x += 2) {
+      const pi = (y * 128 + x) * 3;
+      // 2 pixels per byte
+      const li = quantizeNearest(pixels[pi], pixels[pi+1], pixels[pi+2], pal);
+      const ri = quantizeNearest(pixels[pi+3], pixels[pi+4], pixels[pi+5], pal);
+      out[oi] = (ri << 4) | li;
+      oi++;
+    }
+  }
+  return out;
+}
+
+// Pico-8 screen memory dump 128 characters per row, 128 rows.
+// Each pixel is encoded as a hexadecimal digit corresponding to the default
+// palette.
+function generatePico8Txt(pixels) {
+  const pal = PALETTE_PICO8;
+  const out = new Uint8Array(128 * 129);
+  let oi = 0;
+  for (let y = 0; y < 128; y++) {
+    for (let x = 0; x < 128; x++) {
+      const pi = (y * 128 + x) * 3;
+      const li = quantizeNearest([pixels[pi], pixels[pi+1], pixels[pi+2]], pal);
+      out[oi] = li < 10 ? 48 + li : 55 + li; // Hex to ASCII 48-57, 65-70
+      oi++;
+    }
+    out[oi] = 10;
+    oi++;
+  }
+  return out;
+}
+
 // --- TAP file generation (supports multiple CODE blocks) ---
 function makeTapPair(data, addr, name) {
   // Filename padded to 10 chars
@@ -3309,7 +3411,7 @@ function stretchFactors(aspect) {
 }
 
 function renderConvertedPreview(pixels) {
-  const modeCfg = MODES[currentMode] || MODES.standard;
+  const modeCfg = MODES[currentMode] ?? MODES.standard;
   const { x: stretchX, y: stretchY } = stretchFactors(modeCfg.aspect);
   const scale = getPreviewScale();
   const dispW = Math.round(screenWidth * scale * stretchX);
@@ -3380,7 +3482,7 @@ function renderConvertedPreview(pixels) {
 function getPreviewScale() {
   if (zoomLevel !== 'fit') return zoomLevel;
   // Auto-scale to fit available space, accounting for mode's pixel aspect ratio
-  const modeCfg = MODES[currentMode] || MODES.standard;
+  const modeCfg = MODES[currentMode] ?? MODES.standard;
   const { x: stretchX, y: stretchY } = stretchFactors(modeCfg.aspect);
   const wrap = document.querySelector('.canvas-wrap');
   if (!wrap) return 2;
@@ -3406,7 +3508,7 @@ function downloadBlob(blob, filename) {
 
 function exportImage(format, scale) {
   if (!convertedPixels) return;
-  const modeCfg = MODES[currentMode] || MODES.standard;
+  const modeCfg = MODES[currentMode] ?? MODES.standard;
   const { x: stretchX, y: stretchY } = stretchFactors(modeCfg.aspect);
   const outW = Math.round(screenWidth * scale * stretchX);
   const outH = Math.round(screenHeight * scale * stretchY);
@@ -3510,7 +3612,7 @@ document.querySelectorAll('.zoom-btn[data-zoom]').forEach(btn => {
 
 function renderFullscreenCanvas() {
   if (!convertedPixels) return;
-  const modeCfg = MODES[currentMode] || MODES.standard;
+  const modeCfg = MODES[currentMode] ?? MODES.standard;
   const { x: stretchX, y: stretchY } = stretchFactors(modeCfg.aspect);
   const imgData = new ImageData(screenWidth, screenHeight);
   for (let i = 0; i < screenWidth * screenHeight; i++) {
@@ -3542,8 +3644,12 @@ function openFullscreen() {
   if (!convertedPixels) return;
   $('fsOverlay').classList.add('visible');
   renderFullscreenCanvas();
+  $('fsOverlay').requestFullscreen();
 }
 function closeFullscreen() {
+  if (document.fullscreenElement) {
+    document.exitFullscreen();
+  }
   $('fsOverlay').classList.remove('visible');
 }
 $('fullscreenBtn').addEventListener('click', openFullscreen);
@@ -3580,7 +3686,7 @@ function settingsSummary() {
 
 $('snapshotBtn').addEventListener('click', () => {
   if (!convertedPixels) return;
-  const modeCfg = MODES[currentMode] || MODES.standard;
+  const modeCfg = MODES[currentMode] ?? MODES.standard;
   abSnapshot = {
     pixels: new Uint8Array(convertedPixels),
     w: screenWidth,
@@ -3636,7 +3742,7 @@ function renderABCompare() {
   if (!abSnapshot || !convertedPixels) return;
   drawPixelsToCanvas($('abSnapshotCanvas'),
                      abSnapshot.pixels, abSnapshot.w, abSnapshot.h, abSnapshot.aspect);
-  const modeCfg = MODES[currentMode] || MODES.standard;
+  const modeCfg = MODES[currentMode] ?? MODES.standard;
   drawPixelsToCanvas($('abLiveCanvas'),
                      convertedPixels, screenWidth, screenHeight, modeCfg.aspect);
   $('abSnapshotCaption').textContent = 'A: ' + abSnapshot.caption;
@@ -3755,7 +3861,7 @@ $('modesFileInput').addEventListener('change', e => {
   reader.onload = ev => {
     try {
       const parsed = JSON.parse(ev.target.result);
-      const modesObj = parsed.modes || parsed;
+      const modesObj = parsed.modes ?? parsed;
       let added = 0;
       for (const [name, cfg] of Object.entries(modesObj)) {
         const required = ['w', 'h', 'aspect', 'blockW', 'blockH', 'colorsPerBlock', 'palettes', 'searchStrategy', 'label', 'ext'];
@@ -3800,18 +3906,22 @@ function rebuildModeSelect() {
 // ============================================================
 // sRGB <-> linear helpers and block pre-blur
 // ============================================================
-function srgbToLinearChan(v) {
-  const s = v / 255;
-  const lin = s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
-  return lin * 255; // keep on same 0..255 scale so colorDist weights stay sane
+
+// An sRGB color component is in the 0 to 255 range. A linear color component is in the 0 to 1 range.
+function srgbToLinear(s) {
+  const c = s / 255;
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
 }
-function linearToSrgbChan(v) {
-  const lin = v / 255;
-  const s = lin <= 0.0031308 ? lin * 12.92 : 1.055 * Math.pow(Math.max(0, lin), 1/2.4) - 0.055;
+
+// A linear color component is in the 0 to 1 range. An sRGB color component is in the 0 to 255 range.
+function linearToSrgb(c) {
+  const s = c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(Math.max(0, c), 1/2.4) - 0.055;
   return s * 255;
 }
+
+// Palette in linear color space is still using colors in the 0..255 component range.
 function srgbToLinearPalette(pal) {
-  return pal.map(c => [srgbToLinearChan(c[0]), srgbToLinearChan(c[1]), srgbToLinearChan(c[2])]);
+  return pal.map(c => [255 * srgbToLinear(c[0]), 255 * srgbToLinear(c[1]), 255 * srgbToLinear(c[2])]);
 }
 
 function gaussianKernel1D(radius) {
