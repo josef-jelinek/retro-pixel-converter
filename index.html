@@ -539,7 +539,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 <header>
   <h1>Retro Pixel Converter</h1>
-  <span>Convert images to ZX Spectrum, TS 2068, C64, Atari 800 and QL</span>
+  <span>Convert images to ZX Spectrum, TS 2068, C64, Atari 800, QL and Pico-8</span>
 </header>
 
 <div class="app">
@@ -767,6 +767,9 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
       <div class="export-row">
         <button class="btn-primary" id="exportBin" disabled>Download binary</button>
         <button class="btn-accent" id="exportTap" disabled>Download .TAP</button>
+      </div>
+      <div class="export-row" id="exportPico8TxtRow" style="display:none;">
+        <button class="btn-secondary" id="exportPico8Txt" disabled>Download Pico-8 hex .txt</button>
       </div>
     </div>
 
@@ -1863,6 +1866,9 @@ function updateModeUI() {
   $('colorStrategyGroup').style.display = cfg.searchStrategy === 'exhaustive' ? '' : 'none';
   $('atariHueGroup').style.display = mode === 'atari-gr9' ? '' : 'none';
   $('exportTap').style.display = cfg.supportsTap ? '' : 'none';
+  // Pico-8 hex .txt export is mode-specific (only useful in pico8 mode)
+  const pico8Row = $('exportPico8TxtRow');
+  if (pico8Row) pico8Row.style.display = mode === 'pico8' ? '' : 'none';
   const btn = $('exportBin');
   if (btn) {
     const ext = cfg.ext;
@@ -2731,8 +2737,9 @@ function convert() {
 
     // Enable export buttons
     const cfgForExport = MODES[currentMode] ?? MODES.standard;
-    for (const id of ['exportBin','exportTap','exportPng1x','exportPng2x','exportPng4x','exportJpg1x','exportJpg2x','exportJpg4x']) {
-      $(id).disabled = false;
+    for (const id of ['exportBin','exportTap','exportPng1x','exportPng2x','exportPng4x','exportJpg1x','exportJpg2x','exportJpg4x','exportPico8Txt']) {
+      const el = $(id);
+      if (el) el.disabled = false;
     }
     if (cfgForExport.custom) $('exportBin').disabled = true;
     if (!cfgForExport.supportsTap) $('exportTap').disabled = true;
@@ -3331,16 +3338,17 @@ function generatePico8Bin(pixels) {
 // palette.
 function generatePico8Txt(pixels) {
   const pal = PALETTE_PICO8;
+  // 128 hex digits per row + 1 newline byte = 129 bytes per row
   const out = new Uint8Array(128 * 129);
   let oi = 0;
   for (let y = 0; y < 128; y++) {
     for (let x = 0; x < 128; x++) {
       const pi = (y * 128 + x) * 3;
-      const li = quantizeNearest([pixels[pi], pixels[pi+1], pixels[pi+2]], pal);
-      out[oi] = li < 10 ? 48 + li : 55 + li; // Hex to ASCII 48-57, 65-70
+      const li = quantizeNearest(pixels[pi], pixels[pi+1], pixels[pi+2], pal);
+      out[oi] = li < 10 ? 48 + li : 55 + li; // ASCII '0'..'9' or 'A'..'F'
       oi++;
     }
-    out[oi] = 10;
+    out[oi] = 10; // LF
     oi++;
   }
   return out;
@@ -3557,6 +3565,15 @@ $('exportTap').addEventListener('click', () => {
   const label = MODES[currentMode].label;
   downloadBlob(new Blob([tap], { type: 'application/octet-stream' }),
                `image_${label}.tap`);
+});
+
+// Pico-8 hex .txt export — 128 rows of 128 hex digits (one per pixel)
+// suitable for pasting into a Pico-8 cartridge __gfx__ section.
+$('exportPico8Txt').addEventListener('click', () => {
+  if (!convertedPixels || currentMode !== 'pico8') return;
+  const txtBytes = generatePico8Txt(convertedPixels);
+  downloadBlob(new Blob([txtBytes], { type: 'text/plain' }),
+               'image_pico8.txt');
 });
 
 $('exportPng1x').addEventListener('click', () => exportImage('png', 1));

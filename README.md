@@ -20,6 +20,7 @@ _(The GitHub repo is still named `spectrum-image-maker` for URL stability, since
 | Atari 800 | GR.9 | 80×192 | per-pixel | 16 luma shades of one hue | `.gr9` |
 | QL | Mode 8 / Low res | 256×256 | per-pixel | 8 | `_scr` |
 | QL | Mode 4 / Hi-res | 512×256 | per-pixel | 4 fixed (black/red/green/white) | `_scr` |
+| Pico-8 | Standard palette | 128×128 | per-pixel | 16 fixed | `.bin` (+ optional hex `.txt`) |
 
 Plus user-defined **custom modes** loaded via JSON profile import.
 
