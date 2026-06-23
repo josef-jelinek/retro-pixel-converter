@@ -5372,7 +5372,7 @@ vec3 linearToSRGB(vec3 c) {
 void main() {
   vec2 uv = vec2(v_texCoord.x, u_flipY ? 1.0 - v_texCoord.y : v_texCoord.y);
   vec4 texel = texture(u_texSlot, uv);
-  vec3 color = u_sourceLinear ? texel.rgb : sRGBToLinear(texel.rgb) * texel.a;
+  vec3 color = u_sourceLinear ? texel.rgb : sRGBToLinear(texel.rgb);
   color = (color - 0.18) * u_contrast + 0.18 + u_brightness;
   float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
   color = mix(vec3(luma), color, u_saturation);
