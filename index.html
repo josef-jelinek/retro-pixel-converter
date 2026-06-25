@@ -785,7 +785,7 @@ svg {
 
 <header>
   <h1>Retro Pixel Converter</h1>
-  <span>Convert images to ZX Spectrum, TS 2068, C64, Atari 800, QL and Pico-8</span>
+  <span>Convert images to ZX81, ZX Spectrum, TS 2068, C64, Atari 800, QL and Pico-8</span>
 </header>
 
 <div class="app">
@@ -817,6 +817,10 @@ svg {
           <option value="ts-standard">Standard Timex (256×192, 8×8 attrs)</option>
           <option value="ecm">Timex Extended Color (256×192, 8×1 attrs)</option>
           <option value="hires">Timex 64-col hi-res (512×192 mono)</option>
+        </optgroup>
+        <optgroup label="Sinclair ZX81">
+          <option value="zx81-equalized">ZX81 Character Graphics Equalized (32×24 chars)</option>
+          <option value="zx81-linear">ZX81 Character Graphics Linear (32×24 chars)</option>
         </optgroup>
         <optgroup label="Commodore 64 NTSC">
           <option value="c64-hires-ntsc">C64 NTSC Hi-res (320×200, 2/16 per 8×8)</option>
@@ -1360,6 +1364,11 @@ const PALETTE_PICO8 = [
   [0xFF, 0xCC, 0xAA], // light-peach
 ];
 
+const PALETTE_ZX81 = [
+  [0x00, 0x00, 0x00],
+  [0xFF, 0xFF, 0xFF],
+];
+
 // --- Perceptual Color Distance ---
 // Default: weighted Euclidean RGB (fast). BT.601-ish weights: green > red > blue.
 // Optional: OkLab (Björn Ottosson, 2020) — perceptually linear. Slower but
@@ -1511,6 +1520,76 @@ function yliluomaLiteChoose(r, g, b, colors, mode, threshold) {
 //   port            — TS 2068 Port 0xFF value (documentation / future loader)
 //   outScale        — optional output-only scale before CRT/output shaders
 //   label           — filename suffix
+const ZX81_GLYPH_ROWS = [
+  [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+  [0xF0, 0xF0, 0xF0, 0xF0, 0x00, 0x00, 0x00, 0x00],
+  [0x0F, 0x0F, 0x0F, 0x0F, 0x00, 0x00, 0x00, 0x00],
+  [0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00],
+  [0x00, 0x00, 0x00, 0x00, 0xF0, 0xF0, 0xF0, 0xF0],
+  [0xF0, 0xF0, 0xF0, 0xF0, 0xF0, 0xF0, 0xF0, 0xF0],
+  [0x0F, 0x0F, 0x0F, 0x0F, 0xF0, 0xF0, 0xF0, 0xF0],
+  [0xFF, 0xFF, 0xFF, 0xFF, 0xF0, 0xF0, 0xF0, 0xF0],
+  [0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55],
+  [0x00, 0x00, 0x00, 0x00, 0xAA, 0x55, 0xAA, 0x55],
+  [0xAA, 0x55, 0xAA, 0x55, 0x00, 0x00, 0x00, 0x00],
+  [0x00, 0x24, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00],
+  [0x00, 0x1C, 0x22, 0x78, 0x20, 0x20, 0x7E, 0x00],
+  [0x00, 0x08, 0x3E, 0x28, 0x3E, 0x0A, 0x3E, 0x08],
+  [0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x10, 0x00],
+  [0x00, 0x3C, 0x42, 0x04, 0x08, 0x00, 0x08, 0x00],
+  [0x00, 0x04, 0x08, 0x08, 0x08, 0x08, 0x04, 0x00],
+  [0x00, 0x20, 0x10, 0x10, 0x10, 0x10, 0x20, 0x00],
+  [0x00, 0x00, 0x10, 0x08, 0x04, 0x08, 0x10, 0x00],
+  [0x00, 0x00, 0x04, 0x08, 0x10, 0x08, 0x04, 0x00],
+  [0x00, 0x00, 0x00, 0x3E, 0x00, 0x3E, 0x00, 0x00],
+  [0x00, 0x00, 0x08, 0x08, 0x3E, 0x08, 0x08, 0x00],
+  [0x00, 0x00, 0x00, 0x00, 0x3E, 0x00, 0x00, 0x00],
+  [0x00, 0x00, 0x14, 0x08, 0x3E, 0x08, 0x14, 0x00],
+  [0x00, 0x00, 0x02, 0x04, 0x08, 0x10, 0x20, 0x00],
+  [0x00, 0x00, 0x10, 0x00, 0x00, 0x10, 0x10, 0x20],
+  [0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x08, 0x10],
+  [0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x18, 0x00],
+  [0x00, 0x3C, 0x46, 0x4A, 0x52, 0x62, 0x3C, 0x00],
+  [0x00, 0x18, 0x28, 0x08, 0x08, 0x08, 0x3E, 0x00],
+  [0x00, 0x3C, 0x42, 0x02, 0x3C, 0x40, 0x7E, 0x00],
+  [0x00, 0x3C, 0x42, 0x0C, 0x02, 0x42, 0x3C, 0x00],
+  [0x00, 0x08, 0x18, 0x28, 0x48, 0x7E, 0x08, 0x00],
+  [0x00, 0x7E, 0x40, 0x7C, 0x02, 0x42, 0x3C, 0x00],
+  [0x00, 0x3C, 0x40, 0x7C, 0x42, 0x42, 0x3C, 0x00],
+  [0x00, 0x7E, 0x02, 0x04, 0x08, 0x10, 0x10, 0x00],
+  [0x00, 0x3C, 0x42, 0x3C, 0x42, 0x42, 0x3C, 0x00],
+  [0x00, 0x3C, 0x42, 0x42, 0x3E, 0x02, 0x3C, 0x00],
+  [0x00, 0x3C, 0x42, 0x42, 0x7E, 0x42, 0x42, 0x00],
+  [0x00, 0x7C, 0x42, 0x7C, 0x42, 0x42, 0x7C, 0x00],
+  [0x00, 0x3C, 0x42, 0x40, 0x40, 0x42, 0x3C, 0x00],
+  [0x00, 0x78, 0x44, 0x42, 0x42, 0x44, 0x78, 0x00],
+  [0x00, 0x7E, 0x40, 0x7C, 0x40, 0x40, 0x7E, 0x00],
+  [0x00, 0x7E, 0x40, 0x7C, 0x40, 0x40, 0x40, 0x00],
+  [0x00, 0x3C, 0x42, 0x40, 0x4E, 0x42, 0x3C, 0x00],
+  [0x00, 0x42, 0x42, 0x7E, 0x42, 0x42, 0x42, 0x00],
+  [0x00, 0x3E, 0x08, 0x08, 0x08, 0x08, 0x3E, 0x00],
+  [0x00, 0x02, 0x02, 0x02, 0x42, 0x42, 0x3C, 0x00],
+  [0x00, 0x44, 0x48, 0x70, 0x48, 0x44, 0x42, 0x00],
+  [0x00, 0x40, 0x40, 0x40, 0x40, 0x40, 0x7E, 0x00],
+  [0x00, 0x42, 0x66, 0x5A, 0x42, 0x42, 0x42, 0x00],
+  [0x00, 0x42, 0x62, 0x52, 0x4A, 0x46, 0x42, 0x00],
+  [0x00, 0x3C, 0x42, 0x42, 0x42, 0x42, 0x3C, 0x00],
+  [0x00, 0x7C, 0x42, 0x42, 0x7C, 0x40, 0x40, 0x00],
+  [0x00, 0x3C, 0x42, 0x42, 0x52, 0x4A, 0x3C, 0x00],
+  [0x00, 0x7C, 0x42, 0x42, 0x7C, 0x44, 0x42, 0x00],
+  [0x00, 0x3C, 0x40, 0x3C, 0x02, 0x42, 0x3C, 0x00],
+  [0x00, 0xFE, 0x10, 0x10, 0x10, 0x10, 0x10, 0x00],
+  [0x00, 0x42, 0x42, 0x42, 0x42, 0x42, 0x3C, 0x00],
+  [0x00, 0x42, 0x42, 0x42, 0x42, 0x24, 0x18, 0x00],
+  [0x00, 0x42, 0x42, 0x42, 0x42, 0x5A, 0x24, 0x00],
+  [0x00, 0x42, 0x24, 0x18, 0x18, 0x24, 0x42, 0x00],
+  [0x00, 0x82, 0x44, 0x28, 0x10, 0x10, 0x10, 0x00],
+  [0x00, 0x7E, 0x04, 0x08, 0x10, 0x20, 0x7E, 0x00],
+];
+
+const ZX81_FIT_COUNTS = [1, 4, 16, 64];
+const ZX81_FIT_WEIGHTS = [1, 1, 1, 1];
+
 const MODES = {
   standard: {
     w: 256, h: 192,
@@ -1555,6 +1634,28 @@ const MODES = {
     searchStrategy: "user-picked",
     colorful: false, port: 6, label: "hires",
     ext: "scr", supportsTap: true,
+  },
+  "zx81-equalized": {
+    w: 256, h: 192,
+    border: { left: 32, right: 32, top: 24, bottom: 24 },
+    borderPalette: [[0xFF, 0xFF, 0xFF]],
+    blockW: 8, blockH: 8, colorsPerBlock: 2,
+    palettes: [PALETTE_ZX81],
+    mandatoryColor: null,
+    searchStrategy: "zx81-character",
+    colorful: false, label: "zx81-equalized",
+    ext: "zx8", supportsTap: false,
+  },
+  "zx81-linear": {
+    w: 256, h: 192,
+    border: { left: 32, right: 32, top: 24, bottom: 24 },
+    borderPalette: [[0xFF, 0xFF, 0xFF]],
+    blockW: 8, blockH: 8, colorsPerBlock: 2,
+    palettes: [PALETTE_ZX81],
+    mandatoryColor: null,
+    searchStrategy: "zx81-character",
+    colorful: false, label: "zx81-linear",
+    ext: "zx8", supportsTap: false,
   },
   "c64-hires-ntsc": {
     w: 320, h: 200,
@@ -1882,7 +1983,7 @@ function initPaletteStrip() {
   strip.innerHTML = "";
   const mode = currentMode;
   const entries = paletteStripEntries(mode);
-  const disableable = !(mode === "hires" || mode === "ql-mode4");
+  const disableable = !(mode === "hires" || mode === "ql-mode4" || isZX81Mode(mode));
   for (const e of entries) {
     const d = document.createElement("div");
     d.className = "swatch";
@@ -2106,7 +2207,7 @@ function recommendSettings(analysis, mode) {
     }
   }
   // Mode-specific overrides
-  const monoModes = new Set(["hires", "atari-gr8"]);
+  const monoModes = new Set(["hires", "atari-gr8", "zx81-equalized", "zx81-linear"]);
   const pixelDirect = new Set(["atari-gr9", "ql-mode8", "ql-mode4"]);
   const globalPrequant = new Set(["atari-gr15"]);
   const c64Modes = new Set(["c64-hires-ntsc", "c64-koala-ntsc", "c64-hires-pal", "c64-koala-pal"]);
@@ -2548,9 +2649,136 @@ function isErrorDiffusion(mode) {
   return mode in DIFFUSION_KERNELS || mode === "hilbert-fs";
 }
 
+function isZX81Mode(mode) {
+  return mode === "zx81-equalized" || mode === "zx81-linear";
+}
+
 // Throttle triggering of convert by dropping the requests coming less than 50ms apart.
 const convertTimeoutMs = 50;
 let convertTimeoutId = undefined;
+
+let zx81GlyphCandidates = null;
+
+function fillZX81Features(values, out) {
+  let offset = 0;
+  for (let cells = 1; cells <= 8; cells *= 2) {
+    const cellSize = 8 / cells;
+    const divisor = cellSize * cellSize;
+    for (let cy = 0; cy < cells; cy++) {
+      for (let cx = 0; cx < cells; cx++) {
+        let sum = 0;
+        for (let y = 0; y < cellSize; y++) {
+          const row = (cy * cellSize + y) * 8;
+          for (let x = 0; x < cellSize; x++) {
+            sum += values[row + cx * cellSize + x];
+          }
+        }
+        out[offset] = sum / divisor;
+        offset++;
+      }
+    }
+  }
+}
+
+function getZX81GlyphCandidates() {
+  if (zx81GlyphCandidates) return zx81GlyphCandidates;
+  const candidates = [];
+  const values = new Float32Array(64);
+  for (let code = 0; code < ZX81_GLYPH_ROWS.length; code++) {
+    for (let inv = 0; inv < 2; inv++) {
+      const rows = new Uint8Array(8);
+      for (let y = 0; y < 8; y++) {
+        const row = inv ? ZX81_GLYPH_ROWS[code][y] ^ 0xFF : ZX81_GLYPH_ROWS[code][y];
+        rows[y] = row;
+        for (let x = 0; x < 8; x++) {
+          values[y * 8 + x] = (row & (0x80 >> x)) ? 0 : 1;
+        }
+      }
+      const features = new Float32Array(85);
+      fillZX81Features(values, features);
+      candidates.push({
+        code: inv ? (code | 0x80) : code,
+        rows,
+        features,
+      });
+    }
+  }
+  zx81GlyphCandidates = candidates;
+  return candidates;
+}
+
+function fillZX81BlockValues(work, blockX, blockY, values, equalized) {
+  for (let y = 0; y < 8; y++) {
+    for (let x = 0; x < 8; x++) {
+      const idx = ((blockY + y) * screenWidth + blockX + x) * 3;
+      let luma = 0.2126 * work[idx] + 0.7152 * work[idx + 1] + 0.0722 * work[idx + 2];
+      if (equalized) luma = linearToSrgb(clamp01(luma)) / 255;
+      values[y * 8 + x] = clamp01(luma);
+    }
+  }
+}
+
+function scoreZX81Features(source, candidate) {
+  let score = 0;
+  let offset = 0;
+  for (let level = 0; level < ZX81_FIT_COUNTS.length; level++) {
+    const count = ZX81_FIT_COUNTS[level];
+    let levelError = 0;
+    for (let i = 0; i < count; i++) {
+      const d = source[offset + i] - candidate[offset + i];
+      levelError += d * d;
+    }
+    score += ZX81_FIT_WEIGHTS[level] * levelError / count;
+    offset += count;
+  }
+  return score;
+}
+
+function paintZX81Glyph(result, blockX, blockY, rows) {
+  for (let y = 0; y < 8; y++) {
+    const row = rows[y];
+    for (let x = 0; x < 8; x++) {
+      const value = (row & (0x80 >> x)) ? 0 : 1;
+      const idx = ((blockY + y) * screenWidth + blockX + x) * 3;
+      result[idx] = value;
+      result[idx + 1] = value;
+      result[idx + 2] = value;
+    }
+  }
+}
+
+function convertZX81Characters(work, result, equalized) {
+  const cols = Math.round(screenWidth / 8);
+  const rows = Math.round(screenHeight / 8);
+  const chars = new Uint8Array(cols * rows);
+  const values = new Float32Array(64);
+  const sourceFeatures = new Float32Array(85);
+  const candidates = getZX81GlyphCandidates();
+
+  for (let cy = 0; cy < rows; cy++) {
+    for (let cx = 0; cx < cols; cx++) {
+      const blockX = cx * 8;
+      const blockY = cy * 8;
+      fillZX81BlockValues(work, blockX, blockY, values, equalized);
+      fillZX81Features(values, sourceFeatures);
+
+      let best = candidates[0];
+      let bestScore = Infinity;
+      for (let i = 0; i < candidates.length; i++) {
+        const candidate = candidates[i];
+        const score = scoreZX81Features(sourceFeatures, candidate.features);
+        if (score < bestScore) {
+          bestScore = score;
+          best = candidate;
+        }
+      }
+
+      chars[cy * cols + cx] = best.code;
+      paintZX81Glyph(result, blockX, blockY, best.rows);
+    }
+  }
+  return chars;
+}
 
 // --- Main conversion pipeline ---
 function convert() {
@@ -3140,104 +3368,108 @@ function convert() {
       }
     }
 
-    // Global dither pass: errors propagate across block boundaries.
-    // Critical for ECM's 8×1 blocks, where per-block dithering would lose all
-    // vertical error flow.
-    applyGlobalDither(work, resultLinear, ditherMode, (x, y) => {
-      const bx = Math.min(numAttrCols - 1, Math.floor(x / bW));
-      const by = Math.min(numAttrRows - 1, Math.floor(y / bH));
-      return blockColors[by][bx];
-    }, { serpentine });
-
-    // --- Gauss-Seidel refinement pass ---
-    // After the initial WAPF+dither pass, measure per-block output error and
-    // re-run a small candidate search on blocks that are the worst offenders.
-    // Uses the initial choice as seed and only evaluates nearby candidates.
-    // Only applied to exhaustive standard/ecm modes where a block has two
-    // independent palette colors (not C64 auto-bg or global-prequant).
     let gsUpgraded = 0, gsIters = 0;
-    if (
-      gaussSeidel &&
-      strategy === "exhaustive" &&
-      (currentMode === "standard" || currentMode === "ts-standard" || currentMode === "ecm") &&
-      attrs
-    ) {
-      // Compute per-block error for current output
-      const blockErr = new Float64Array(numAttrRows * numAttrCols);
-      const recomputeBlockErr = (by, bx) => {
-        let sum = 0;
-        const blockX = bx * bW, blockY = by * bH;
-        for (let py = 0; py < bH; py++) {
-          for (let px = 0; px < bW; px++) {
-            const idx = ((blockY + py) * screenWidth + (blockX + px)) * 3;
-            const dr = work[idx]   - resultLinear[idx];
-            const dg = work[idx+1] - resultLinear[idx+1];
-            const db = work[idx+2] - resultLinear[idx+2];
-            sum += 3*dr*dr + 4*dg*dg + 2*db*db;
-          }
-        }
-        blockErr[by * numAttrCols + bx] = sum;
-      };
-      for (let by = 0; by < numAttrRows; by++) {
-        for (let bx = 0; bx < numAttrCols; bx++) recomputeBlockErr(by, bx);
-      }
-      // Threshold: top-quartile by error (block is "hard")
-      const sorted = Array.from(blockErr).sort((a,b) => a - b);
-      const threshold = sorted[Math.floor(sorted.length * 0.75)] ?? 0;
+    if (strategy === "zx81-character") {
+      modeMeta.zx81Chars = convertZX81Characters(blockWork, resultLinear, currentMode === "zx81-equalized");
+    } else {
+      // Global dither pass: errors propagate across block boundaries.
+      // Critical for ECM's 8×1 blocks, where per-block dithering would lose all
+      // vertical error flow.
+      applyGlobalDither(work, resultLinear, ditherMode, (x, y) => {
+        const bx = Math.min(numAttrCols - 1, Math.floor(x / bW));
+        const by = Math.min(numAttrRows - 1, Math.floor(y / bH));
+        return blockColors[by][bx];
+      }, { serpentine });
 
-      for (let iter = 0; iter < 3; iter++) {
-        let changed = 0;
-        for (let by = 0; by < numAttrRows; by++) {
-          for (let bx = 0; bx < numAttrCols; bx++) {
-            if (blockErr[by * numAttrCols + bx] <= threshold) continue;
-            const blockX = bx * bW, blockY = by * bH;
-            // Candidate pool: existing pair + its "neighbors" (other single-
-            // palette swaps against the 8 colors in each palette).
-            const [curInk, curPaper] = blockIndices[by][bx];
-            const curAttr = attrs[by * numAttrCols + bx];
-            const curBright = (curAttr >> 6) & 1;
-            let bestErr = evaluateBlock(blockWork, blockX, blockY, bW, bH,
-              [palettes[curBright][curInk], palettes[curBright][curPaper]], ditherMode);
-            let bestInk = curInk, bestPaper = curPaper, bestBright = curBright;
-            const cands = [];
-            // Vary one side at a time, within same bright
-            for (let c = 0; c < 8; c++) {
-              if (c !== curPaper) cands.push([curBright, c, curPaper]);
-              if (c !== curInk) cands.push([curBright, curInk, c]);
-            }
-            // Also try flipping bright
-            for (let c = 0; c < 8; c++) cands.push([curBright ^ 1, c, curPaper]);
-            for (const [tb, ti, tp] of cands) {
-              if (isColorDisabled(currentMode, tb, ti) || isColorDisabled(currentMode, tb, tp)) continue;
-              const pal = palettes[tb];
-              const err = evaluateBlock(blockWork, blockX, blockY, bW, bH, [pal[ti], pal[tp]], ditherMode);
-              if (err < bestErr) { bestErr = err; bestInk = ti; bestPaper = tp; bestBright = tb; }
-            }
-            if (bestInk !== curInk || bestPaper !== curPaper || bestBright !== curBright) {
-              const pal = palettes[bestBright];
-              blockColors[by][bx] = [pal[bestInk], pal[bestPaper]];
-              blockIndices[by][bx] = [bestInk, bestPaper];
-              attrs[by * numAttrCols + bx] = (bestBright << 6) | (bestPaper << 3) | bestInk;
-              changed++;
+      // --- Gauss-Seidel refinement pass ---
+      // After the initial WAPF+dither pass, measure per-block output error and
+      // re-run a small candidate search on blocks that are the worst offenders.
+      // Uses the initial choice as seed and only evaluates nearby candidates.
+      // Only applied to exhaustive standard/ecm modes where a block has two
+      // independent palette colors (not C64 auto-bg or global-prequant).
+      if (
+        gaussSeidel &&
+        strategy === "exhaustive" &&
+        (currentMode === "standard" || currentMode === "ts-standard" || currentMode === "ecm") &&
+        attrs
+      ) {
+        // Compute per-block error for current output
+        const blockErr = new Float64Array(numAttrRows * numAttrCols);
+        const recomputeBlockErr = (by, bx) => {
+          let sum = 0;
+          const blockX = bx * bW, blockY = by * bH;
+          for (let py = 0; py < bH; py++) {
+            for (let px = 0; px < bW; px++) {
+              const idx = ((blockY + py) * screenWidth + (blockX + px)) * 3;
+              const dr = work[idx]   - resultLinear[idx];
+              const dg = work[idx+1] - resultLinear[idx+1];
+              const db = work[idx+2] - resultLinear[idx+2];
+              sum += 3*dr*dr + 4*dg*dg + 2*db*db;
             }
           }
-        }
-        gsIters = iter + 1;
-        if (changed === 0) break;
-        gsUpgraded += changed;
-        // Re-run global dither with updated colors
-        applyGlobalDither(work, resultLinear, ditherMode, (x, y) => {
-          const bx = Math.min(numAttrCols - 1, Math.floor(x / bW));
-          const by = Math.min(numAttrRows - 1, Math.floor(y / bH));
-          return blockColors[by][bx];
-        }, { serpentine });
-        // Recompute per-block error for next iteration
+          blockErr[by * numAttrCols + bx] = sum;
+        };
         for (let by = 0; by < numAttrRows; by++) {
           for (let bx = 0; bx < numAttrCols; bx++) recomputeBlockErr(by, bx);
         }
+        // Threshold: top-quartile by error (block is "hard")
+        const sorted = Array.from(blockErr).sort((a,b) => a - b);
+        const threshold = sorted[Math.floor(sorted.length * 0.75)] ?? 0;
+
+        for (let iter = 0; iter < 3; iter++) {
+          let changed = 0;
+          for (let by = 0; by < numAttrRows; by++) {
+            for (let bx = 0; bx < numAttrCols; bx++) {
+              if (blockErr[by * numAttrCols + bx] <= threshold) continue;
+              const blockX = bx * bW, blockY = by * bH;
+              // Candidate pool: existing pair + its "neighbors" (other single-
+              // palette swaps against the 8 colors in each palette).
+              const [curInk, curPaper] = blockIndices[by][bx];
+              const curAttr = attrs[by * numAttrCols + bx];
+              const curBright = (curAttr >> 6) & 1;
+              let bestErr = evaluateBlock(blockWork, blockX, blockY, bW, bH,
+                [palettes[curBright][curInk], palettes[curBright][curPaper]], ditherMode);
+              let bestInk = curInk, bestPaper = curPaper, bestBright = curBright;
+              const cands = [];
+              // Vary one side at a time, within same bright
+              for (let c = 0; c < 8; c++) {
+                if (c !== curPaper) cands.push([curBright, c, curPaper]);
+                if (c !== curInk) cands.push([curBright, curInk, c]);
+              }
+              // Also try flipping bright
+              for (let c = 0; c < 8; c++) cands.push([curBright ^ 1, c, curPaper]);
+              for (const [tb, ti, tp] of cands) {
+                if (isColorDisabled(currentMode, tb, ti) || isColorDisabled(currentMode, tb, tp)) continue;
+                const pal = palettes[tb];
+                const err = evaluateBlock(blockWork, blockX, blockY, bW, bH, [pal[ti], pal[tp]], ditherMode);
+                if (err < bestErr) { bestErr = err; bestInk = ti; bestPaper = tp; bestBright = tb; }
+              }
+              if (bestInk !== curInk || bestPaper !== curPaper || bestBright !== curBright) {
+                const pal = palettes[bestBright];
+                blockColors[by][bx] = [pal[bestInk], pal[bestPaper]];
+                blockIndices[by][bx] = [bestInk, bestPaper];
+                attrs[by * numAttrCols + bx] = (bestBright << 6) | (bestPaper << 3) | bestInk;
+                changed++;
+              }
+            }
+          }
+          gsIters = iter + 1;
+          if (changed === 0) break;
+          gsUpgraded += changed;
+          // Re-run global dither with updated colors
+          applyGlobalDither(work, resultLinear, ditherMode, (x, y) => {
+            const bx = Math.min(numAttrCols - 1, Math.floor(x / bW));
+            const by = Math.min(numAttrRows - 1, Math.floor(y / bH));
+            return blockColors[by][bx];
+          }, { serpentine });
+          // Recompute per-block error for next iteration
+          for (let by = 0; by < numAttrRows; by++) {
+            for (let bx = 0; bx < numAttrCols; bx++) recomputeBlockErr(by, bx);
+          }
+        }
+        modeMeta.gsIters = gsIters;
+        modeMeta.gsUpgraded = gsUpgraded;
       }
-      modeMeta.gsIters = gsIters;
-      modeMeta.gsUpgraded = gsUpgraded;
     }
 
     // Convert result pixels back to sRGB for display and image export.
@@ -3867,6 +4099,15 @@ function generatePico8Txt(pixels) {
   return out;
 }
 
+// ZX81 character screen: 32x24 character codes, row-major.
+function generateZX81Output(chars) {
+  const out = new Uint8Array(32 * 24);
+  if (!chars) return out;
+  const count = Math.min(out.length, chars.length);
+  for (let i = 0; i < count; i++) out[i] = chars[i] & 0xFF;
+  return out;
+}
+
 // --- TAP file generation (supports multiple CODE blocks) ---
 function makeTapPair(data, addr, name) {
   // Filename padded to 10 chars
@@ -4065,6 +4306,8 @@ function setBinaryExportSource(mode, pixels, attrs, blockIndices, modeMeta) {
     state.modeMeta.atariBg = modeMeta.atariBg;
   } else if (mode === "atari-gr9") {
     state.modeMeta.gr9Hue = modeMeta.gr9Hue;
+  } else if (isZX81Mode(mode)) {
+    state.modeMeta.zx81Chars = modeMeta.zx81Chars ? new Uint8Array(modeMeta.zx81Chars) : new Uint8Array(0);
   }
   binaryExportState = state;
 }
@@ -4138,6 +4381,8 @@ function buildBinaryExportData() {
     bytes = generateQLMode4(pixels);
   } else if (mode === "pico8") {
     bytes = generatePico8Bin(pixels);
+  } else if (isZX81Mode(mode)) {
+    bytes = generateZX81Output(modeMeta.zx81Chars);
   } else {
     bytes = new Uint8Array(0);
   }

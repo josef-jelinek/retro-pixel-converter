@@ -1,6 +1,6 @@
 # Retro Pixel Converter
 
-A dependency-free browser image converter for classic 8-bit and 16-bit machines. It converts JPG/PNG images into native graphics formats for the ZX Spectrum, Timex/Sinclair 2068, Commodore 64, Atari 800, Sinclair QL, and Pico-8.
+A dependency-free browser image converter for classic 8-bit and 16-bit machines. It converts JPG/PNG images into native graphics formats for the ZX81, ZX Spectrum, Timex/Sinclair 2068, Commodore 64, Atari 800, Sinclair QL, and Pico-8.
 
 **[Try it live ->](https://factus10.github.io/retro-pixel-converter/)**
 
@@ -9,6 +9,7 @@ A dependency-free browser image converter for classic 8-bit and 16-bit machines.
 | Machine | Mode | Pixels | Attribute / block size | Colors | Visible border | File |
 |---|---:|---:|---:|---|---|---|
 | ZX Spectrum | Standard | 256x192 | 8x8 | 2 of 16, ZX bright-black behavior | 32/32/24/24 | `.scr` / `.tap` |
+| ZX81 | Character graphics equalized / linear | 256x192 | 8x8 character cells | 64 glyphs + inverse video | 32/32/24/24 | `.zx8` |
 | TS 2068 | Standard | 256x192 | 8x8 | 2 of 16, Timex bright black is dark gray | 32/32/24/24 | `.scr` / `.tap` |
 | TS 2068 | Extended Color Mode | 256x192 | 8x1 | 2 of 16 per strip | 32/32/24/24 | `.scr` / `.tap` |
 | TS 2068 | 64-column hi-res | 512x192 | global | 8 hardware ink/paper pairs | 64/64/24/24 | `.scr` / `.tap` |
@@ -21,7 +22,7 @@ A dependency-free browser image converter for classic 8-bit and 16-bit machines.
 | QL | Mode 4 / Hi-res | 512x256 | per-pixel | 4 fixed colors | none | `_scr` |
 | Pico-8 | Standard palette | 128x128 | per-pixel | 16 fixed | 4:3 side border | `.bin` + optional hex `.txt` |
 
-Visible borders are listed as left/right/top/bottom in mode pixels. Border color palettes are mode-aware: ZX and most Timex modes use the 8 basic non-bright colors, TS 2068 hi-res follows the selected paper color, C64 modes use the active C64 palette, and modes without known border color control default to black.
+Visible borders are listed as left/right/top/bottom in mode pixels. Border color palettes are mode-aware: ZX81 uses a fixed white border, ZX Spectrum and most Timex modes use the 8 basic non-bright colors, TS 2068 hi-res follows the selected paper color, C64 modes use the active C64 palette, and modes without known border color control default to black.
 
 Custom modes can also be imported from JSON at runtime. PNG/JPG export works for custom modes; binary export requires mode-specific exporter code.
 
@@ -64,6 +65,7 @@ Color search strategies are mode-aware:
 - **Global pre-quantize** is used for modes such as Atari GR.15 where exhaustive search is too large.
 - **Pixel-direct** is used for per-pixel modes such as QL and Atari GR.9.
 - **User-picked** is used for hardware-constrained monochrome modes such as TS 2068 64-column and Atari GR.8.
+- **ZX81 character fit** converts the image to 32x24 fixed character cells and picks the closest normal or inverse-video glyph using multi-scale grayscale intensity matching. The `equalized` sub-mode applies the sRGB transfer to source luma before matching; the `linear` sub-mode matches directly in linear luma.
 
 Threshold-based dithers nudge non-uniform blocks toward distinct color pairs so gradients can dither instead of collapsing into flat color.
 
@@ -74,6 +76,7 @@ The app displays each mode as part of a 4:3 visible screen, using border dimensi
 | Mode | Full visible frame | Derived pixel aspect |
 |---|---:|---:|
 | ZX / TS standard / ECM | 320x240 | 1.000 |
+| ZX81 | 320x240 | 1.000 |
 | TS 2068 64-column | 640x240 | 0.500 |
 | C64 hi-res NTSC | 418x235 | 0.750 |
 | C64 multicolor NTSC | 209x235 | 1.499 |
@@ -94,6 +97,7 @@ Image export produces sharp PNG/JPG files at 1x, 2x, or 4x with the active conve
 
 | Format | Output |
 |---|---|
+| ZX81 character screen | `.zx8`, 768 character-code bytes |
 | ZX Spectrum SCREEN$ | `.scr`, 6912 bytes |
 | TS 2068 ECM | `.scr`, 12288 bytes |
 | TS 2068 64-column | `.scr`, 12288 bytes |
@@ -108,6 +112,8 @@ Image export produces sharp PNG/JPG files at 1x, 2x, or 4x with the active conve
 ZX/Timex modes additionally support `.tap` tape-image export with correctly addressed CODE blocks.
 
 ## Hardware Notes
+
+ZX81: `.zx8` is a raw 32x24 row-major character-code screen using normal codes `0..63` and inverse-video codes `128..191`.
 
 ZX/Timex: the `.tap` export includes CODE blocks at the correct addresses. For ECM/64-column modes, set the video mode first (`OUT 255,2` for ECM, `OUT 255,6+(ink<<3)` for 64-column) before loading.
 
