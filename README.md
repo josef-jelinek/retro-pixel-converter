@@ -33,6 +33,7 @@ Custom modes can also be imported from JSON at runtime. PNG/JPG export works for
 - Dithering and quantization operate on linear pixels, then final converted pixels are resolved back to sRGB for display and export.
 - Output geometry is derived from each mode's addressable pixel area plus visible border, then mapped to a 4:3 display. Pixel aspect is calculated from that full visible frame rather than stored as a separate mode constant.
 - The output starts with a 320x240 TV test pattern so scale, border, and CRT sizing are visible before an image is loaded.
+- After conversion, the status bar reports total wall-clock time plus a compact stage breakdown for mapping, preparation, quantization, output application, and final display output.
 - A modern browser with WebGL2 support is required. There is no build step and no runtime dependency download.
 
 ## Workflow Features
