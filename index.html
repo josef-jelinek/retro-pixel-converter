@@ -4159,6 +4159,17 @@ function downloadBlob(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
+let exportImageCanvas = null;
+let exportImageRenderer = null;
+
+function getExportImageRenderer() {
+  if (!exportImageCanvas) exportImageCanvas = document.createElement("canvas");
+  if (!exportImageRenderer) {
+    exportImageRenderer = getWebGLCanvasRenderer(exportImageCanvas, { preserveDrawingBuffer: true });
+  }
+  return exportImageRenderer;
+}
+
 function exportImage(format, scale) {
   if (!convertedPixels) return;
   const modeCfg = MODES[currentMode] ?? MODES.standard;
@@ -4166,13 +4177,14 @@ function exportImage(format, scale) {
   const stretchY = 1;
   const outW = Math.round(screenWidth * scale * stretchX);
   const outH = Math.round(screenHeight * scale * stretchY);
-  const canvas = document.createElement("canvas");
-  const renderer = getWebGLCanvasRenderer(canvas, { preserveDrawingBuffer: true });
+  const renderer = getExportImageRenderer();
+  const canvas = renderer.canvas;
   webglCanvasRenderSRGBRGB(renderer, convertedPixels, screenWidth, screenHeight, outW, outH);
 
   const mimeType = format === "jpg" ? "image/jpeg" : "image/png";
   const ext = format === "jpg" ? "jpg" : "png";
   canvas.toBlob(blob => {
+    if (!blob) return;
     downloadBlob(blob, `image_${modeCfg.label}_${outW}x${outH}.${ext}`);
   }, mimeType, format === "jpg" ? 0.95 : undefined);
 }
@@ -4497,6 +4509,11 @@ function getFullscreenViewportSize() {
     return { width: screen.width, height: screen.height };
   }
   return { width: window.innerWidth, height: window.innerHeight };
+}
+
+function getRenderDevicePixelRatio() {
+  const dpr = Number(window.devicePixelRatio || 1);
+  return Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
 }
 
 function getFullscreenOutputScale(state) {
@@ -5211,6 +5228,7 @@ function gpuUploadSource(gpu, source) {
   gpu.sourceTexHeight = 0;
   gpu.sourceTexFilter = null;
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
@@ -5988,50 +6006,61 @@ function crtRender(renderer, shaderTime, settings = getCRTSettings()) {
 
   const stretchX = renderer.displayAspect;
   const stretchY = 1;
-  const contentWidth = Math.max(1, Math.round(targetWidth * stretchX * settings.scale));
-  const contentHeight = Math.max(1, Math.round(targetHeight * stretchY * settings.scale));
-  const viewportWidth = Math.max(1, Math.round(settings.viewportWidth ?? contentWidth));
-  const viewportHeight = Math.max(1, Math.round(settings.viewportHeight ?? contentHeight));
-  if (gl.canvas.width !== viewportWidth || gl.canvas.height !== viewportHeight) {
-    gl.canvas.width = viewportWidth;
-    gl.canvas.height = viewportHeight;
+  const requestedPixelRatio = Number(settings.pixelRatio ?? getRenderDevicePixelRatio());
+  const pixelRatio = Number.isFinite(requestedPixelRatio) && requestedPixelRatio > 0 ? requestedPixelRatio : 1;
+  const contentCssWidth = Math.max(1, Math.round(targetWidth * stretchX * settings.scale));
+  const contentCssHeight = Math.max(1, Math.round(targetHeight * stretchY * settings.scale));
+  const viewportCssWidth = Math.max(1, Math.round(settings.viewportWidth ?? contentCssWidth));
+  const viewportCssHeight = Math.max(1, Math.round(settings.viewportHeight ?? contentCssHeight));
+  const viewportPixelWidth = Math.max(1, Math.round(viewportCssWidth * pixelRatio));
+  const viewportPixelHeight = Math.max(1, Math.round(viewportCssHeight * pixelRatio));
+  if (gl.canvas.width !== viewportPixelWidth || gl.canvas.height !== viewportPixelHeight) {
+    gl.canvas.width = viewportPixelWidth;
+    gl.canvas.height = viewportPixelHeight;
   }
-  gl.canvas.style.width = viewportWidth + "px";
-  gl.canvas.style.height = viewportHeight + "px";
+  gl.canvas.style.width = viewportCssWidth + "px";
+  gl.canvas.style.height = viewportCssHeight + "px";
   gl.canvas.style.maxWidth = "none";
   gl.canvas.style.maxHeight = "none";
 
-  let drawX = 0;
-  let drawY = 0;
-  let drawW = viewportWidth;
-  let drawH = viewportHeight;
+  let drawCssX = 0;
+  let drawCssY = 0;
+  let drawCssW = viewportCssWidth;
+  let drawCssH = viewportCssHeight;
   let drawScale = 1;
   if (settings.fitViewport) {
-    drawScale = Math.min(viewportWidth / contentWidth, viewportHeight / contentHeight);
-    drawW = Math.max(1, Math.round(contentWidth * drawScale));
-    drawH = Math.max(1, Math.round(contentHeight * drawScale));
-    drawX = Math.floor((viewportWidth - drawW) * 0.5);
-    drawY = Math.floor((viewportHeight - drawH) * 0.5);
+    drawScale = Math.min(viewportCssWidth / contentCssWidth, viewportCssHeight / contentCssHeight);
+    drawCssW = Math.max(1, Math.round(contentCssWidth * drawScale));
+    drawCssH = Math.max(1, Math.round(contentCssHeight * drawScale));
+    drawCssX = Math.floor((viewportCssWidth - drawCssW) * 0.5);
+    drawCssY = Math.floor((viewportCssHeight - drawCssH) * 0.5);
     gl.clearColor(0, 0, 0, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
   }
 
-  gl.viewport(drawX, drawY, drawW, drawH);
+  const drawPixelX = Math.round(drawCssX * pixelRatio);
+  const drawPixelY = Math.round(drawCssY * pixelRatio);
+  const drawPixelW = Math.max(1, Math.round(drawCssW * pixelRatio));
+  const drawPixelH = Math.max(1, Math.round(drawCssH * pixelRatio));
+  gl.viewport(drawPixelX, drawPixelY, drawPixelW, drawPixelH);
   gl.useProgram(renderer.programCombine);
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, renderer.texBase);
   gl.activeTexture(gl.TEXTURE1);
   gl.bindTexture(gl.TEXTURE_2D, renderer.texBloomY);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-  if (settings.fitViewport) gl.viewport(0, 0, viewportWidth, viewportHeight);
+  if (settings.fitViewport) gl.viewport(0, 0, viewportPixelWidth, viewportPixelHeight);
 
-  const imageX = drawX + Math.round(imageLeft * stretchX * settings.scale * drawScale);
-  const imageY = (viewportHeight - drawY - drawH) + Math.round(imageTop * stretchY * settings.scale * drawScale);
+  const imageX = drawCssX + Math.round(imageLeft * stretchX * settings.scale * drawScale);
+  const imageY = (viewportCssHeight - drawCssY - drawCssH) + Math.round(imageTop * stretchY * settings.scale * drawScale);
   const imageW = Math.round(renderer.imageWidth * stretchX * settings.scale * drawScale);
   const imageH = Math.round(renderer.imageHeight * stretchY * settings.scale * drawScale);
   return {
-    width: viewportWidth,
-    height: viewportHeight,
+    width: viewportCssWidth,
+    height: viewportCssHeight,
+    pixelWidth: viewportPixelWidth,
+    pixelHeight: viewportPixelHeight,
+    pixelRatio,
     imageX,
     imageY,
     imageW,
