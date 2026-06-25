@@ -832,7 +832,7 @@ svg {
         </optgroup>
         <optgroup label="Atari 800">
           <option value="atari-gr15">Atari GR.15 / ANTIC E (160×192, 4col)</option>
-          <option value="atari-gr8">Atari GR.8 (320×192 mono)</option>
+          <option value="atari-gr8">Atari GR.8 (320×192, 2col)</option>
           <option value="atari-gr9">Atari GR.9 (80×192, 16 lumas)</option>
         </optgroup>
         <optgroup label="Sinclair QL">
@@ -862,6 +862,24 @@ svg {
       <input id="inkColor" type="hidden" value="7">
       <input id="paperColor" type="hidden" value="0">
       <input id="hiresBright" type="hidden" value="false">
+    </div>
+
+    <div id="atariGr8ColorsGroup" class="control-group" style="display: none">
+      <h3>Atari GR.8 Colors</h3>
+      <label>Foreground hue</label>
+      <select id="atariGr8FgHue"></select>
+      <label class="range">
+        <span class="range-label">Foreground luma</span>
+        <input id="atariGr8FgLuma" type="range" min="0" max="7" step="1" value="7">
+        <span id="atariGr8FgLumaVal" class="range-val">7</span>
+      </label>
+      <label>Background hue</label>
+      <select id="atariGr8BgHue"></select>
+      <label class="range">
+        <span class="range-label">Background luma</span>
+        <input id="atariGr8BgLuma" type="range" min="0" max="7" step="1" value="0">
+        <span id="atariGr8BgLumaVal" class="range-val">0</span>
+      </label>
     </div>
 
     <div id="atariHueGroup" class="control-group" style="display: none">
@@ -972,7 +990,7 @@ svg {
       </div>
     </div>
 
-    <div class="control-group">
+    <div id="paletteGroup" class="control-group">
       <h3 id="paletteHeading">Palette</h3>
       <div id="paletteStrip" class="palette-strip"></div>
       <div id="paletteDisableRow" style="margin-top: 4px; color: var(--text-dim); font-size: 0.75rem">
@@ -1287,6 +1305,11 @@ const PALETTE_QL_MODE4 = [
   [0xFF, 0xFF, 0xFF], // 3 white  (GR bits 11)
 ];
 
+const ATARI_HUE_NAMES = [
+  "Gray", "Gold", "Orange", "Red-orange", "Pink", "Magenta", "Purple", "Blue-purple",
+  "Blue", "Light blue", "Cyan", "Blue-green", "Green", "Yellow-green", "Orange-green", "Yellow",
+];
+
 // --- Atari 800 palette (128 colors: 16 hues × 8 lumas) ---
 // Computed using YIQ-style hue/luma model similar to Altirra NTSC.
 // Not bit-exact to any specific emulator but visually representative.
@@ -1301,7 +1324,7 @@ const PALETTE_ATARI = (() => {
         r = g = b = luma;
       } else {
         // Hue angle around NTSC color wheel: hue 1 ≈ gold, cycling around
-        const angle = ((h - 1) * 360 / 15 + 195) * Math.PI / 180;
+        const angle = ((h - 1) * 360 / 15 + 339) * Math.PI / 180;
         const sat = 0.42;
         const I = sat * Math.cos(angle);
         const Q = sat * Math.sin(angle);
@@ -1328,7 +1351,7 @@ function atariLumaPalette(hue) {
     if (hue === 0) {
       r = g = b = luma;
     } else {
-      const angle = ((hue - 1) * 360 / 15 + 195) * Math.PI / 180;
+      const angle = ((hue - 1) * 360 / 15 + 339) * Math.PI / 180;
       const sat = 0.42;
       const I = sat * Math.cos(angle);
       const Q = sat * Math.sin(angle);
@@ -1816,6 +1839,13 @@ const byId = id => document.getElementById(id);
 const UI = {
   root: document.documentElement,
   advancedToggle: byId("advancedToggle"),
+  atariGr8BgHue: byId("atariGr8BgHue"),
+  atariGr8BgLuma: byId("atariGr8BgLuma"),
+  atariGr8BgLumaVal: byId("atariGr8BgLumaVal"),
+  atariGr8ColorsGroup: byId("atariGr8ColorsGroup"),
+  atariGr8FgHue: byId("atariGr8FgHue"),
+  atariGr8FgLuma: byId("atariGr8FgLuma"),
+  atariGr8FgLumaVal: byId("atariGr8FgLumaVal"),
   atariHue: byId("atariHue"),
   atariHueGroup: byId("atariHueGroup"),
   autoBadge: byId("autoBadge"),
@@ -1907,6 +1937,7 @@ const UI = {
   outputViewActive: byId("outputViewActive"),
   outputViewSaved: byId("outputViewSaved"),
   paletteDisableRow: byId("paletteDisableRow"),
+  paletteGroup: byId("paletteGroup"),
   paletteStrip: byId("paletteStrip"),
   paperColor: byId("paperColor"),
   profileFileInput: byId("profileFileInput"),
@@ -1926,6 +1957,29 @@ const UI = {
 // Map of mode -> Set of disabled "palette-index" strings (format "pIdx:cIdx")
 const disabledColors = {};
 
+function initAtariGr8ColorControls() {
+  const hueControls = [[UI.atariGr8FgHue, 0], [UI.atariGr8BgHue, 0]];
+  for (const [select, selected] of hueControls) {
+    select.textContent = "";
+    for (let i = 0; i < ATARI_HUE_NAMES.length; i++) {
+      const option = document.createElement("option");
+      option.value = String(i);
+      option.textContent = i + " - " + ATARI_HUE_NAMES[i];
+      if (i === selected) option.selected = true;
+      select.appendChild(option);
+    }
+  }
+  UI.atariGr8FgLuma.value = "7";
+  UI.atariGr8BgLuma.value = "0";
+  updateAtariGr8LumaLabels();
+}
+initAtariGr8ColorControls();
+
+function updateAtariGr8LumaLabels() {
+  UI.atariGr8FgLumaVal.textContent = UI.atariGr8FgLuma.value;
+  UI.atariGr8BgLumaVal.textContent = UI.atariGr8BgLuma.value;
+}
+
 function disabledKey(pIdx, cIdx) { return pIdx + ":" + cIdx; }
 
 function isColorDisabled(mode, pIdx, cIdx) {
@@ -1936,6 +1990,14 @@ function isColorDisabled(mode, pIdx, cIdx) {
 function enabledColorMasks(mode) {
   const cfg = MODES[mode] ?? MODES.standard;
   const out = [];
+  if (mode === "atari-gr9") {
+    const mask = [];
+    for (let cIdx = 0; cIdx < 16; cIdx++) {
+      mask.push(!isColorDisabled(mode, 0, cIdx));
+    }
+    out.push(mask);
+    return out;
+  }
   for (let pIdx = 0; pIdx < cfg.palettes.length; pIdx++) {
     const mask = [];
     for (let cIdx = 0; cIdx < cfg.palettes[pIdx].length; cIdx++) {
@@ -1961,7 +2023,7 @@ function paletteStripEntries(mode) {
     }
     return out;
   }
-  if (mode === "atari-gr15" || mode === "atari-gr8") {
+  if (mode === "atari-gr15") {
     const pal = cfg.palettes[0];
     // Compact subset: 16 hues × 4 lumas = 64 swatches
     for (let h = 0; h < 16; h++) {
@@ -1985,6 +2047,13 @@ function initPaletteStrip() {
   const strip = UI.paletteStrip;
   strip.innerHTML = "";
   const mode = currentMode;
+  const hidePalette = mode === "atari-gr8";
+  if (UI.paletteGroup) UI.paletteGroup.style.display = hidePalette ? "none" : "";
+  if (hidePalette) {
+    const helperRow = UI.paletteDisableRow;
+    if (helperRow) helperRow.style.display = "none";
+    return;
+  }
   const entries = paletteStripEntries(mode);
   const disableable = !(mode === "hires" || mode === "ql-mode4" || isZX81Mode(mode));
   for (const e of entries) {
@@ -2565,6 +2634,10 @@ for (const [id, control] of [
   ["inkColor", UI.inkColor],
   ["paperColor", UI.paperColor],
   ["hiresBright", UI.hiresBright],
+  ["atariGr8FgHue", UI.atariGr8FgHue],
+  ["atariGr8FgLuma", UI.atariGr8FgLuma],
+  ["atariGr8BgHue", UI.atariGr8BgHue],
+  ["atariGr8BgLuma", UI.atariGr8BgLuma],
   ["atariHue", UI.atariHue],
   ["brightness", UI.brightness],
   ["contrast", UI.contrast],
@@ -2582,6 +2655,7 @@ for (const [id, control] of [
     if (id === "saturation") UI.saturationVal.textContent = control.value;
     if (id === "gamma") UI.gammaVal.textContent = (parseInt(control.value) / 100).toFixed(2);
     if (id === "blockBlur") UI.blockBlurVal.textContent = (parseInt(control.value) / 10).toFixed(1);
+    if (id === "atariGr8FgLuma" || id === "atariGr8BgLuma") updateAtariGr8LumaLabels();
     if (id === "displayMode") {
       currentMode = UI.displayMode.value;
       updateModeUI();
@@ -2609,7 +2683,8 @@ for (const [id, control] of [
 function updateModeUI() {
   const mode = UI.displayMode.value;
   const cfg = MODES[mode] ?? MODES.standard;
-  UI.hiresColorsGroup.style.display = (mode === "hires" || mode === "atari-gr8") ? "" : "none";
+  UI.hiresColorsGroup.style.display = mode === "hires" ? "" : "none";
+  UI.atariGr8ColorsGroup.style.display = mode === "atari-gr8" ? "" : "none";
   UI.colorStrategyGroup.style.display = cfg.searchStrategy === "exhaustive" ? "" : "none";
   UI.atariHueGroup.style.display = mode === "atari-gr9" ? "" : "none";
   UI.exportTap.style.display = cfg.supportsTap ? "" : "none";
@@ -2899,6 +2974,10 @@ const conversionPipelineState = {
   inkColor: 0,
   paperColor: 0,
   hiresBright: false,
+  atariGr8FgHue: 0,
+  atariGr8FgLuma: 7,
+  atariGr8BgHue: 0,
+  atariGr8BgLuma: 0,
   atariHue: 0,
   adjustments: null,
   serpentine: true,
@@ -3033,6 +3112,14 @@ function convert() {
   state.inkColor = parseInt(UI.inkColor.value) || 0;
   state.paperColor = parseInt(UI.paperColor.value) || 0;
   state.hiresBright = UI.hiresBright ? UI.hiresBright.checked : false;
+  state.atariGr8FgHue = parseInt(UI.atariGr8FgHue.value, 10);
+  state.atariGr8FgLuma = parseInt(UI.atariGr8FgLuma.value, 10);
+  state.atariGr8BgHue = parseInt(UI.atariGr8BgHue.value, 10);
+  state.atariGr8BgLuma = parseInt(UI.atariGr8BgLuma.value, 10);
+  if (!Number.isFinite(state.atariGr8FgHue)) state.atariGr8FgHue = 0;
+  if (!Number.isFinite(state.atariGr8FgLuma)) state.atariGr8FgLuma = 7;
+  if (!Number.isFinite(state.atariGr8BgHue)) state.atariGr8BgHue = 0;
+  if (!Number.isFinite(state.atariGr8BgLuma)) state.atariGr8BgLuma = 0;
   state.atariHue = parseInt(UI.atariHue.value) || 0;
   state.adjustments = getAdjustmentParams();
   state.serpentine = UI.serpentine ? UI.serpentine.checked : true;
@@ -3588,14 +3675,12 @@ function pipelineStageQuantizeMode(id) {
       blockIndices = [[[inkIdx, paperIdx]]];
       attrs = new Uint8Array([(bright << 6) | (paperIdx << 3) | inkIdx]);
     } else if (mode === "atari-gr8") {
-      const inkIdx = state.inkColor;
-      const paperIdx = state.paperColor;
-      const bright = state.hiresBright ? 1 : 0;
-      // Map ink/paper 0-7 onto Atari hues; bright toggles fg luma.
-      const fgLuma = bright ? 7 : 6;
-      const bgLuma = 0;
-      const fgIdx = (inkIdx % 16) * 8 + fgLuma;
-      const bgIdx = (paperIdx % 16) * 8 + bgLuma;
+      const fgHue = Math.max(0, Math.min(15, state.atariGr8FgHue | 0));
+      const fgLuma = Math.max(0, Math.min(7, state.atariGr8FgLuma | 0));
+      const bgHue = Math.max(0, Math.min(15, state.atariGr8BgHue | 0));
+      const bgLuma = Math.max(0, Math.min(7, state.atariGr8BgLuma | 0));
+      const fgIdx = fgHue * 8 + fgLuma;
+      const bgIdx = bgHue * 8 + bgLuma;
       const pal = palettes[0];
       numAttrCols = 1; numAttrRows = 1;
       bW = screenW; bH = screenH;
@@ -5457,7 +5542,7 @@ function generateAtariGr15(pixels, regIndices) {
 }
 
 // ==============================================================
-// Atari GR.8: 320×192 mono, 7680 bytes, 1 bpp, MSB-first, 40 bytes/line
+// Atari GR.8: 320×192 2-color hi-res, 7680 bytes, 1 bpp, MSB-first, 40 bytes/line
 // ==============================================================
 function generateAtariGr8(pixels, colorPair) {
   const W = 320, H = 192;
@@ -6414,6 +6499,10 @@ function getCurrentProfile() {
     gamma: parseInt(UI.gamma.value),
     hiresPair: UI.hiresPair.value,
     atariHue: UI.atariHue.value,
+    atariGr8FgHue: UI.atariGr8FgHue.value,
+    atariGr8FgLuma: UI.atariGr8FgLuma.value,
+    atariGr8BgHue: UI.atariGr8BgHue.value,
+    atariGr8BgLuma: UI.atariGr8BgLuma.value,
     inkColor: UI.inkColor.value,
     paperColor: UI.paperColor.value,
     hiresBright: UI.hiresBright.value,
@@ -6455,6 +6544,10 @@ function applyProfile(p) {
   set(UI.gamma, p.gamma);
   set(UI.hiresPair, p.hiresPair);
   set(UI.atariHue, p.atariHue);
+  set(UI.atariGr8FgHue, p.atariGr8FgHue);
+  set(UI.atariGr8FgLuma, p.atariGr8FgLuma);
+  set(UI.atariGr8BgHue, p.atariGr8BgHue);
+  set(UI.atariGr8BgLuma, p.atariGr8BgLuma);
   set(UI.inkColor, p.inkColor);
   set(UI.paperColor, p.paperColor);
   set(UI.hiresBright, p.hiresBright);
@@ -6507,6 +6600,7 @@ function applyProfile(p) {
   UI.saturationVal.textContent = UI.saturation.value;
   UI.gammaVal.textContent = (parseInt(UI.gamma.value) / 100).toFixed(2);
   UI.blockBlurVal.textContent = (parseInt(UI.blockBlur.value) / 10).toFixed(1);
+  updateAtariGr8LumaLabels();
   UI.root.style.setProperty("--crt-scale", String(UI.scaleSlider.value));
   UI.scaleText.textContent = Number(UI.scaleSlider.value).toFixed(2);
   UI.crtBrightnessText.textContent = UI.crtBrightnessSlider.value;
