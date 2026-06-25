@@ -1,6 +1,6 @@
 # Retro Pixel Converter
 
-A dependency-free browser image converter for classic 8-bit and 16-bit machines. It converts JPG/PNG images into native graphics formats for the ZX Spectrum, Timex/Sinclair 2068, Commodore 64, Atari 800, Sinclair QL, and Pico-8.
+A dependency-free browser image converter for classic 8-bit and 16-bit machines. It converts JPG/PNG images into native graphics formats for the ZX81, ZX Spectrum, Timex/Sinclair 2068, Commodore 64, Atari 800, Sinclair QL, and Pico-8.
 
 **[Try it live ->](https://factus10.github.io/retro-pixel-converter/)**
 
@@ -9,19 +9,20 @@ A dependency-free browser image converter for classic 8-bit and 16-bit machines.
 | Machine | Mode | Pixels | Attribute / block size | Colors | Visible border | File |
 |---|---:|---:|---:|---|---|---|
 | ZX Spectrum | Standard | 256x192 | 8x8 | 2 of 16, ZX bright-black behavior | 32/32/24/24 | `.scr` / `.tap` |
+| ZX81 | Character graphics equalized / linear | 256x192 | 8x8 character cells | 64 glyphs + inverse video | 32/32/24/24 | `.zx8` |
 | TS 2068 | Standard | 256x192 | 8x8 | 2 of 16, Timex bright black is dark gray | 32/32/24/24 | `.scr` / `.tap` |
 | TS 2068 | Extended Color Mode | 256x192 | 8x1 | 2 of 16 per strip | 32/32/24/24 | `.scr` / `.tap` |
 | TS 2068 | 64-column hi-res | 512x192 | global | 8 hardware ink/paper pairs | 64/64/24/24 | `.scr` / `.tap` |
 | C64 | Hi-res bitmap NTSC/PAL | 320x200 | 8x8 | 2 of 16 | mode-specific | `.prg` |
 | C64 | Multicolor / Koala NTSC/PAL | 160x200 | 4x8 | 4 of 16 + auto global background | mode-specific | `.kla` |
 | Atari 800 | GR.15 / ANTIC E | 160x192 | global | 4 of 128 | 8/8/24/24 | `.mic` |
-| Atari 800 | GR.8 | 320x192 | global | 2 user-picked colors | 16/16/24/24 | `.gr8` |
+| Atari 800 | GR.8 | 320x192 | global | 2 user-picked hue/luma colors | 16/16/24/24 | `.gr8` |
 | Atari 800 | GR.9 | 80x192 | per-pixel | 16 luma shades of one hue | 4/4/24/24 | `.gr9` |
 | QL | Mode 8 / Low res | 256x256 | per-pixel | 8 | none | `_scr` |
 | QL | Mode 4 / Hi-res | 512x256 | per-pixel | 4 fixed colors | none | `_scr` |
 | Pico-8 | Standard palette | 128x128 | per-pixel | 16 fixed | 4:3 side border | `.bin` + optional hex `.txt` |
 
-Visible borders are listed as left/right/top/bottom in mode pixels. Border color palettes are mode-aware: ZX and most Timex modes use the 8 basic non-bright colors, TS 2068 hi-res follows the selected paper color, C64 modes use the active C64 palette, and modes without known border color control default to black.
+Visible borders are listed as left/right/top/bottom in mode pixels. Border color palettes are mode-aware: ZX81 uses a fixed white border, ZX Spectrum and most Timex modes use the 8 basic non-bright colors, TS 2068 hi-res follows the selected paper color, C64 modes use the active C64 palette, and modes without known border color control default to black.
 
 Custom modes can also be imported from JSON at runtime. PNG/JPG export works for custom modes; binary export requires mode-specific exporter code.
 
@@ -32,6 +33,7 @@ Custom modes can also be imported from JSON at runtime. PNG/JPG export works for
 - Dithering and quantization operate on linear pixels, then final converted pixels are resolved back to sRGB for display and export.
 - Output geometry is derived from each mode's addressable pixel area plus visible border, then mapped to a 4:3 display. Pixel aspect is calculated from that full visible frame rather than stored as a separate mode constant.
 - The output starts with a 320x240 TV test pattern so scale, border, and CRT sizing are visible before an image is loaded.
+- After conversion, the status bar reports total wall-clock time plus a compact stage breakdown for mapping, preparation, quantization, output application, and final display output.
 - A modern browser with WebGL2 support is required. There is no build step and no runtime dependency download.
 
 ## Workflow Features
@@ -40,7 +42,8 @@ Custom modes can also be imported from JSON at runtime. PNG/JPG export works for
 - Resize the input/output split manually with the center divider.
 - Lock crop aspect ratio, stretch the selected crop to the target resolution, or turn Stretch off and fill side bars with the configured RGB crop fill color. Filled bars are part of the target image and can be dithered like any other pixels.
 - Use brightness, contrast, saturation, gamma, block pre-blur, dithering, palette, and search controls to tune the conversion.
-- Inspect available colors with the mode-aware palette strip and disable individual colors when needed.
+- Inspect available colors with the mode-aware palette strip and disable individual colors for palette-search modes when needed.
+- For Atari GR.8, choose foreground/background Atari hues and luma values directly; the palette strip is hidden because conversion uses those two selected colors.
 - Show an attribute grid overlay for block-based modes.
 - Snapshot the current output and switch the output panel between `Active` and `Saved` using the header radio toggle. The saved snapshot reuses the normal output canvas, CRT, border, scale, grid, and fullscreen paths.
 - Export/import profiles containing current controls, crop state, disabled colors, crop fill color, CRT settings, and border selection.
@@ -63,7 +66,8 @@ Color search strategies are mode-aware:
 - **Per-block best-fit** exhaustively evaluates palette combinations for block modes where that is practical.
 - **Global pre-quantize** is used for modes such as Atari GR.15 where exhaustive search is too large.
 - **Pixel-direct** is used for per-pixel modes such as QL and Atari GR.9.
-- **User-picked** is used for hardware-constrained monochrome modes such as TS 2068 64-column and Atari GR.8.
+- **User-picked** is used for hardware-constrained global-pair modes such as TS 2068 64-column and Atari GR.8. GR.8 exposes Atari hue selectors plus foreground/background luma sliders.
+- **ZX81 character fit** converts the image to 32x24 fixed character cells and picks the closest normal or inverse-video glyph using multi-scale grayscale intensity matching. The `equalized` sub-mode applies the sRGB transfer to source luma before matching; the `linear` sub-mode matches directly in linear luma.
 
 Threshold-based dithers nudge non-uniform blocks toward distinct color pairs so gradients can dither instead of collapsing into flat color.
 
@@ -74,6 +78,7 @@ The app displays each mode as part of a 4:3 visible screen, using border dimensi
 | Mode | Full visible frame | Derived pixel aspect |
 |---|---:|---:|
 | ZX / TS standard / ECM | 320x240 | 1.000 |
+| ZX81 | 320x240 | 1.000 |
 | TS 2068 64-column | 640x240 | 0.500 |
 | C64 hi-res NTSC | 418x235 | 0.750 |
 | C64 multicolor NTSC | 209x235 | 1.499 |
@@ -94,6 +99,7 @@ Image export produces sharp PNG/JPG files at 1x, 2x, or 4x with the active conve
 
 | Format | Output |
 |---|---|
+| ZX81 character screen | `.zx8`, 768 character-code bytes |
 | ZX Spectrum SCREEN$ | `.scr`, 6912 bytes |
 | TS 2068 ECM | `.scr`, 12288 bytes |
 | TS 2068 64-column | `.scr`, 12288 bytes |
@@ -109,11 +115,13 @@ ZX/Timex modes additionally support `.tap` tape-image export with correctly addr
 
 ## Hardware Notes
 
+ZX81: `.zx8` is a raw 32x24 row-major character-code screen using normal codes `0..63` and inverse-video codes `128..191`.
+
 ZX/Timex: the `.tap` export includes CODE blocks at the correct addresses. For ECM/64-column modes, set the video mode first (`OUT 255,2` for ECM, `OUT 255,6+(ink<<3)` for 64-column) before loading.
 
 C64: `.prg` and `.kla` files use standard bitmap/Koala-style layouts and can be loaded by compatible viewers or tools.
 
-Atari 800: `.mic` loads in MicroPainter-compatible tools. `.gr8` and `.gr9` are raw display-memory images.
+Atari 800: `.mic` loads in MicroPainter-compatible tools. `.gr8` and `.gr9` are raw display-memory images. GR.8 color choices affect preview and 1-bit conversion, but the raw `.gr8` payload contains only bitmap bits.
 
 QL: `_scr` is a direct dump of screen RAM at base `$20000`, loadable in common QL emulators with commands such as `LBYTES file,131072`.
 

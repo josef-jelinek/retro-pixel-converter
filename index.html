@@ -785,7 +785,7 @@ svg {
 
 <header>
   <h1>Retro Pixel Converter</h1>
-  <span>Convert images to ZX Spectrum, TS 2068, C64, Atari 800, QL and Pico-8</span>
+  <span>Convert images to ZX81, ZX Spectrum, TS 2068, C64, Atari 800, QL and Pico-8</span>
 </header>
 
 <div class="app">
@@ -818,6 +818,10 @@ svg {
           <option value="ecm">Timex Extended Color (256×192, 8×1 attrs)</option>
           <option value="hires">Timex 64-col hi-res (512×192 mono)</option>
         </optgroup>
+        <optgroup label="Sinclair ZX81">
+          <option value="zx81-equalized">ZX81 Character Graphics Equalized (32×24 chars)</option>
+          <option value="zx81-linear">ZX81 Character Graphics Linear (32×24 chars)</option>
+        </optgroup>
         <optgroup label="Commodore 64 NTSC">
           <option value="c64-hires-ntsc">C64 NTSC Hi-res (320×200, 2/16 per 8×8)</option>
           <option value="c64-koala-ntsc">C64 NTSC Multicolor / Koala (160×200)</option>
@@ -828,7 +832,7 @@ svg {
         </optgroup>
         <optgroup label="Atari 800">
           <option value="atari-gr15">Atari GR.15 / ANTIC E (160×192, 4col)</option>
-          <option value="atari-gr8">Atari GR.8 (320×192 mono)</option>
+          <option value="atari-gr8">Atari GR.8 (320×192, 2col)</option>
           <option value="atari-gr9">Atari GR.9 (80×192, 16 lumas)</option>
         </optgroup>
         <optgroup label="Sinclair QL">
@@ -858,6 +862,24 @@ svg {
       <input id="inkColor" type="hidden" value="7">
       <input id="paperColor" type="hidden" value="0">
       <input id="hiresBright" type="hidden" value="false">
+    </div>
+
+    <div id="atariGr8ColorsGroup" class="control-group" style="display: none">
+      <h3>Atari GR.8 Colors</h3>
+      <label>Foreground hue</label>
+      <select id="atariGr8FgHue"></select>
+      <label class="range">
+        <span class="range-label">Foreground luma</span>
+        <input id="atariGr8FgLuma" type="range" min="0" max="7" step="1" value="7">
+        <span id="atariGr8FgLumaVal" class="range-val">7</span>
+      </label>
+      <label>Background hue</label>
+      <select id="atariGr8BgHue"></select>
+      <label class="range">
+        <span class="range-label">Background luma</span>
+        <input id="atariGr8BgLuma" type="range" min="0" max="7" step="1" value="0">
+        <span id="atariGr8BgLumaVal" class="range-val">0</span>
+      </label>
     </div>
 
     <div id="atariHueGroup" class="control-group" style="display: none">
@@ -968,7 +990,7 @@ svg {
       </div>
     </div>
 
-    <div class="control-group">
+    <div id="paletteGroup" class="control-group">
       <h3 id="paletteHeading">Palette</h3>
       <div id="paletteStrip" class="palette-strip"></div>
       <div id="paletteDisableRow" style="margin-top: 4px; color: var(--text-dim); font-size: 0.75rem">
@@ -1283,6 +1305,11 @@ const PALETTE_QL_MODE4 = [
   [0xFF, 0xFF, 0xFF], // 3 white  (GR bits 11)
 ];
 
+const ATARI_HUE_NAMES = [
+  "Gray", "Gold", "Orange", "Red-orange", "Pink", "Magenta", "Purple", "Blue-purple",
+  "Blue", "Light blue", "Cyan", "Blue-green", "Green", "Yellow-green", "Orange-green", "Yellow",
+];
+
 // --- Atari 800 palette (128 colors: 16 hues × 8 lumas) ---
 // Computed using YIQ-style hue/luma model similar to Altirra NTSC.
 // Not bit-exact to any specific emulator but visually representative.
@@ -1297,7 +1324,7 @@ const PALETTE_ATARI = (() => {
         r = g = b = luma;
       } else {
         // Hue angle around NTSC color wheel: hue 1 ≈ gold, cycling around
-        const angle = ((h - 1) * 360 / 15 + 195) * Math.PI / 180;
+        const angle = ((h - 1) * 360 / 15 + 339) * Math.PI / 180;
         const sat = 0.42;
         const I = sat * Math.cos(angle);
         const Q = sat * Math.sin(angle);
@@ -1324,7 +1351,7 @@ function atariLumaPalette(hue) {
     if (hue === 0) {
       r = g = b = luma;
     } else {
-      const angle = ((hue - 1) * 360 / 15 + 195) * Math.PI / 180;
+      const angle = ((hue - 1) * 360 / 15 + 339) * Math.PI / 180;
       const sat = 0.42;
       const I = sat * Math.cos(angle);
       const Q = sat * Math.sin(angle);
@@ -1360,6 +1387,11 @@ const PALETTE_PICO8 = [
   [0xFF, 0xCC, 0xAA], // light-peach
 ];
 
+const PALETTE_ZX81 = [
+  [0x00, 0x00, 0x00],
+  [0xFF, 0xFF, 0xFF],
+];
+
 // --- Perceptual Color Distance ---
 // Default: weighted Euclidean RGB (fast). BT.601-ish weights: green > red > blue.
 // Optional: OkLab (Björn Ottosson, 2020) — perceptually linear. Slower but
@@ -1377,18 +1409,16 @@ function rgbToOklab(r, g, b) {
   ];
 }
 
-function colorDist(a, b) {
+function colorDistValues(ar, ag, ab, br, bg, bb) {
   if (useOklab) {
-    // OkLab squared Euclidean. Scale to roughly match RGB-weighted magnitudes
-    // so heuristics/thresholds stay in the same ballpark.
-    const [la0, la1, la2] = rgbToOklab(a[0], a[1], a[2]);
-    const [lb0, lb1, lb2] = rgbToOklab(b[0], b[1], b[2]);
+    const [la0, la1, la2] = rgbToOklab(ar, ag, ab);
+    const [lb0, lb1, lb2] = rgbToOklab(br, bg, bb);
     const dL = la0 - lb0, da = la1 - lb1, db = la2 - lb2;
     return dL * dL + da * da + db * db;
   }
-  const dr = 0.2126 * (a[0] - b[0]);
-  const dg = 0.7152 * (a[1] - b[1]);
-  const db = 0.0722 * (a[2] - b[2]);
+  const dr = 0.2126 * (ar - br);
+  const dg = 0.7152 * (ag - bg);
+  const db = 0.0722 * (ab - bb);
   return dr * dr + dg * dg + db * db;
 }
 
@@ -1461,8 +1491,8 @@ function blendFactor(r, g, b, c0, c1, mode) {
     if (t < 0) t = 0; else if (t > 1) t = 1;
     return t;
   }
-  const d0 = colorDist([r, g, b], c0);
-  const d1 = colorDist([r, g, b], c1);
+  const d0 = colorDistValues(r, g, b, c0[0], c0[1], c0[2]);
+  const d1 = colorDistValues(r, g, b, c1[0], c1[1], c1[2]);
   const total = d0 + d1;
   return total > 0 ? d0 / total : 0.5;
 }
@@ -1475,7 +1505,8 @@ function yliluomaLiteChoose(r, g, b, colors, mode, threshold) {
   // Find two nearest palette colors
   let i0 = 0, i1 = 1, d0 = Infinity, d1 = Infinity;
   for (let i = 0; i < colors.length; i++) {
-    const d = colorDist([r, g, b], colors[i]);
+    const color = colors[i];
+    const d = colorDistValues(r, g, b, color[0], color[1], color[2]);
     if (d < d0) { d1 = d0; i1 = i0; d0 = d; i0 = i; }
     else if (d < d1) { d1 = d; i1 = i; }
   }
@@ -1511,6 +1542,76 @@ function yliluomaLiteChoose(r, g, b, colors, mode, threshold) {
 //   port            — TS 2068 Port 0xFF value (documentation / future loader)
 //   outScale        — optional output-only scale before CRT/output shaders
 //   label           — filename suffix
+const ZX81_GLYPH_ROWS = [
+  [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+  [0xF0, 0xF0, 0xF0, 0xF0, 0x00, 0x00, 0x00, 0x00],
+  [0x0F, 0x0F, 0x0F, 0x0F, 0x00, 0x00, 0x00, 0x00],
+  [0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00],
+  [0x00, 0x00, 0x00, 0x00, 0xF0, 0xF0, 0xF0, 0xF0],
+  [0xF0, 0xF0, 0xF0, 0xF0, 0xF0, 0xF0, 0xF0, 0xF0],
+  [0x0F, 0x0F, 0x0F, 0x0F, 0xF0, 0xF0, 0xF0, 0xF0],
+  [0xFF, 0xFF, 0xFF, 0xFF, 0xF0, 0xF0, 0xF0, 0xF0],
+  [0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55, 0xAA, 0x55],
+  [0x00, 0x00, 0x00, 0x00, 0xAA, 0x55, 0xAA, 0x55],
+  [0xAA, 0x55, 0xAA, 0x55, 0x00, 0x00, 0x00, 0x00],
+  [0x00, 0x24, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00],
+  [0x00, 0x1C, 0x22, 0x78, 0x20, 0x20, 0x7E, 0x00],
+  [0x00, 0x08, 0x3E, 0x28, 0x3E, 0x0A, 0x3E, 0x08],
+  [0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x10, 0x00],
+  [0x00, 0x3C, 0x42, 0x04, 0x08, 0x00, 0x08, 0x00],
+  [0x00, 0x04, 0x08, 0x08, 0x08, 0x08, 0x04, 0x00],
+  [0x00, 0x20, 0x10, 0x10, 0x10, 0x10, 0x20, 0x00],
+  [0x00, 0x00, 0x10, 0x08, 0x04, 0x08, 0x10, 0x00],
+  [0x00, 0x00, 0x04, 0x08, 0x10, 0x08, 0x04, 0x00],
+  [0x00, 0x00, 0x00, 0x3E, 0x00, 0x3E, 0x00, 0x00],
+  [0x00, 0x00, 0x08, 0x08, 0x3E, 0x08, 0x08, 0x00],
+  [0x00, 0x00, 0x00, 0x00, 0x3E, 0x00, 0x00, 0x00],
+  [0x00, 0x00, 0x14, 0x08, 0x3E, 0x08, 0x14, 0x00],
+  [0x00, 0x00, 0x02, 0x04, 0x08, 0x10, 0x20, 0x00],
+  [0x00, 0x00, 0x10, 0x00, 0x00, 0x10, 0x10, 0x20],
+  [0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x08, 0x10],
+  [0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0x18, 0x00],
+  [0x00, 0x3C, 0x46, 0x4A, 0x52, 0x62, 0x3C, 0x00],
+  [0x00, 0x18, 0x28, 0x08, 0x08, 0x08, 0x3E, 0x00],
+  [0x00, 0x3C, 0x42, 0x02, 0x3C, 0x40, 0x7E, 0x00],
+  [0x00, 0x3C, 0x42, 0x0C, 0x02, 0x42, 0x3C, 0x00],
+  [0x00, 0x08, 0x18, 0x28, 0x48, 0x7E, 0x08, 0x00],
+  [0x00, 0x7E, 0x40, 0x7C, 0x02, 0x42, 0x3C, 0x00],
+  [0x00, 0x3C, 0x40, 0x7C, 0x42, 0x42, 0x3C, 0x00],
+  [0x00, 0x7E, 0x02, 0x04, 0x08, 0x10, 0x10, 0x00],
+  [0x00, 0x3C, 0x42, 0x3C, 0x42, 0x42, 0x3C, 0x00],
+  [0x00, 0x3C, 0x42, 0x42, 0x3E, 0x02, 0x3C, 0x00],
+  [0x00, 0x3C, 0x42, 0x42, 0x7E, 0x42, 0x42, 0x00],
+  [0x00, 0x7C, 0x42, 0x7C, 0x42, 0x42, 0x7C, 0x00],
+  [0x00, 0x3C, 0x42, 0x40, 0x40, 0x42, 0x3C, 0x00],
+  [0x00, 0x78, 0x44, 0x42, 0x42, 0x44, 0x78, 0x00],
+  [0x00, 0x7E, 0x40, 0x7C, 0x40, 0x40, 0x7E, 0x00],
+  [0x00, 0x7E, 0x40, 0x7C, 0x40, 0x40, 0x40, 0x00],
+  [0x00, 0x3C, 0x42, 0x40, 0x4E, 0x42, 0x3C, 0x00],
+  [0x00, 0x42, 0x42, 0x7E, 0x42, 0x42, 0x42, 0x00],
+  [0x00, 0x3E, 0x08, 0x08, 0x08, 0x08, 0x3E, 0x00],
+  [0x00, 0x02, 0x02, 0x02, 0x42, 0x42, 0x3C, 0x00],
+  [0x00, 0x44, 0x48, 0x70, 0x48, 0x44, 0x42, 0x00],
+  [0x00, 0x40, 0x40, 0x40, 0x40, 0x40, 0x7E, 0x00],
+  [0x00, 0x42, 0x66, 0x5A, 0x42, 0x42, 0x42, 0x00],
+  [0x00, 0x42, 0x62, 0x52, 0x4A, 0x46, 0x42, 0x00],
+  [0x00, 0x3C, 0x42, 0x42, 0x42, 0x42, 0x3C, 0x00],
+  [0x00, 0x7C, 0x42, 0x42, 0x7C, 0x40, 0x40, 0x00],
+  [0x00, 0x3C, 0x42, 0x42, 0x52, 0x4A, 0x3C, 0x00],
+  [0x00, 0x7C, 0x42, 0x42, 0x7C, 0x44, 0x42, 0x00],
+  [0x00, 0x3C, 0x40, 0x3C, 0x02, 0x42, 0x3C, 0x00],
+  [0x00, 0xFE, 0x10, 0x10, 0x10, 0x10, 0x10, 0x00],
+  [0x00, 0x42, 0x42, 0x42, 0x42, 0x42, 0x3C, 0x00],
+  [0x00, 0x42, 0x42, 0x42, 0x42, 0x24, 0x18, 0x00],
+  [0x00, 0x42, 0x42, 0x42, 0x42, 0x5A, 0x24, 0x00],
+  [0x00, 0x42, 0x24, 0x18, 0x18, 0x24, 0x42, 0x00],
+  [0x00, 0x82, 0x44, 0x28, 0x10, 0x10, 0x10, 0x00],
+  [0x00, 0x7E, 0x04, 0x08, 0x10, 0x20, 0x7E, 0x00],
+];
+
+const ZX81_FIT_COUNTS = [1, 4, 16, 64];
+const ZX81_FIT_WEIGHTS = [1, 1, 1, 1];
+
 const MODES = {
   standard: {
     w: 256, h: 192,
@@ -1555,6 +1656,28 @@ const MODES = {
     searchStrategy: "user-picked",
     colorful: false, port: 6, label: "hires",
     ext: "scr", supportsTap: true,
+  },
+  "zx81-equalized": {
+    w: 256, h: 192,
+    border: { left: 32, right: 32, top: 24, bottom: 24 },
+    borderPalette: [[0xFF, 0xFF, 0xFF]],
+    blockW: 8, blockH: 8, colorsPerBlock: 2,
+    palettes: [PALETTE_ZX81],
+    mandatoryColor: null,
+    searchStrategy: "zx81-character",
+    colorful: false, label: "zx81-equalized",
+    ext: "zx8", supportsTap: false,
+  },
+  "zx81-linear": {
+    w: 256, h: 192,
+    border: { left: 32, right: 32, top: 24, bottom: 24 },
+    borderPalette: [[0xFF, 0xFF, 0xFF]],
+    blockW: 8, blockH: 8, colorsPerBlock: 2,
+    palettes: [PALETTE_ZX81],
+    mandatoryColor: null,
+    searchStrategy: "zx81-character",
+    colorful: false, label: "zx81-linear",
+    ext: "zx8", supportsTap: false,
   },
   "c64-hires-ntsc": {
     w: 320, h: 200,
@@ -1716,6 +1839,13 @@ const byId = id => document.getElementById(id);
 const UI = {
   root: document.documentElement,
   advancedToggle: byId("advancedToggle"),
+  atariGr8BgHue: byId("atariGr8BgHue"),
+  atariGr8BgLuma: byId("atariGr8BgLuma"),
+  atariGr8BgLumaVal: byId("atariGr8BgLumaVal"),
+  atariGr8ColorsGroup: byId("atariGr8ColorsGroup"),
+  atariGr8FgHue: byId("atariGr8FgHue"),
+  atariGr8FgLuma: byId("atariGr8FgLuma"),
+  atariGr8FgLumaVal: byId("atariGr8FgLumaVal"),
   atariHue: byId("atariHue"),
   atariHueGroup: byId("atariHueGroup"),
   autoBadge: byId("autoBadge"),
@@ -1807,6 +1937,7 @@ const UI = {
   outputViewActive: byId("outputViewActive"),
   outputViewSaved: byId("outputViewSaved"),
   paletteDisableRow: byId("paletteDisableRow"),
+  paletteGroup: byId("paletteGroup"),
   paletteStrip: byId("paletteStrip"),
   paperColor: byId("paperColor"),
   profileFileInput: byId("profileFileInput"),
@@ -1826,6 +1957,29 @@ const UI = {
 // Map of mode -> Set of disabled "palette-index" strings (format "pIdx:cIdx")
 const disabledColors = {};
 
+function initAtariGr8ColorControls() {
+  const hueControls = [[UI.atariGr8FgHue, 0], [UI.atariGr8BgHue, 0]];
+  for (const [select, selected] of hueControls) {
+    select.textContent = "";
+    for (let i = 0; i < ATARI_HUE_NAMES.length; i++) {
+      const option = document.createElement("option");
+      option.value = String(i);
+      option.textContent = i + " - " + ATARI_HUE_NAMES[i];
+      if (i === selected) option.selected = true;
+      select.appendChild(option);
+    }
+  }
+  UI.atariGr8FgLuma.value = "7";
+  UI.atariGr8BgLuma.value = "0";
+  updateAtariGr8LumaLabels();
+}
+initAtariGr8ColorControls();
+
+function updateAtariGr8LumaLabels() {
+  UI.atariGr8FgLumaVal.textContent = UI.atariGr8FgLuma.value;
+  UI.atariGr8BgLumaVal.textContent = UI.atariGr8BgLuma.value;
+}
+
 function disabledKey(pIdx, cIdx) { return pIdx + ":" + cIdx; }
 
 function isColorDisabled(mode, pIdx, cIdx) {
@@ -1836,6 +1990,14 @@ function isColorDisabled(mode, pIdx, cIdx) {
 function enabledColorMasks(mode) {
   const cfg = MODES[mode] ?? MODES.standard;
   const out = [];
+  if (mode === "atari-gr9") {
+    const mask = [];
+    for (let cIdx = 0; cIdx < 16; cIdx++) {
+      mask.push(!isColorDisabled(mode, 0, cIdx));
+    }
+    out.push(mask);
+    return out;
+  }
   for (let pIdx = 0; pIdx < cfg.palettes.length; pIdx++) {
     const mask = [];
     for (let cIdx = 0; cIdx < cfg.palettes[pIdx].length; cIdx++) {
@@ -1844,6 +2006,10 @@ function enabledColorMasks(mode) {
     out.push(mask);
   }
   return out;
+}
+
+function isPipelineColorEnabled(colorMasks, pIdx, cIdx) {
+  return !!(colorMasks[pIdx] && colorMasks[pIdx][cIdx]);
 }
 
 function paletteStripEntries(mode) {
@@ -1857,7 +2023,7 @@ function paletteStripEntries(mode) {
     }
     return out;
   }
-  if (mode === "atari-gr15" || mode === "atari-gr8") {
+  if (mode === "atari-gr15") {
     const pal = cfg.palettes[0];
     // Compact subset: 16 hues × 4 lumas = 64 swatches
     for (let h = 0; h < 16; h++) {
@@ -1881,8 +2047,15 @@ function initPaletteStrip() {
   const strip = UI.paletteStrip;
   strip.innerHTML = "";
   const mode = currentMode;
+  const hidePalette = mode === "atari-gr8";
+  if (UI.paletteGroup) UI.paletteGroup.style.display = hidePalette ? "none" : "";
+  if (hidePalette) {
+    const helperRow = UI.paletteDisableRow;
+    if (helperRow) helperRow.style.display = "none";
+    return;
+  }
   const entries = paletteStripEntries(mode);
-  const disableable = !(mode === "hires" || mode === "ql-mode4");
+  const disableable = !(mode === "hires" || mode === "ql-mode4" || isZX81Mode(mode));
   for (const e of entries) {
     const d = document.createElement("div");
     d.className = "swatch";
@@ -1962,36 +2135,151 @@ UI.dropZone.addEventListener("drop", e => {
 });
 
 function loadImage(file) {
+  const state = conversionPipelineState;
+  state.id++;
+  pipelineClearScheduledTimeout();
+  pipelineCancelPendingGPURead();
+  if (state.pendingReader && state.pendingReader.readyState === FileReader.LOADING) {
+    try { state.pendingReader.abort(); } catch (_) {}
+  }
+  state.stage = "load-file";
+  state.pendingReader = null;
+  state.pendingImage = null;
+  state.pendingFileName = file.name || "image";
+  state.sourceImage = null;
+  state.sourceImageLinear = null;
+  state.colorMasks = null;
+  state.cropRect = null;
+  state.cropStretch = true;
+  state.cropFillLinear = [0, 0, 0, 1];
+  state.srcLinear = null;
+  state.cropMap = null;
+  state.work = null;
+  state.blockWork = null;
+  state.gpuProcessor = null;
+  state.gpuRead = null;
+  state.cpuPrep = null;
+  state.quantizeWork = null;
+  state.quantizePass = null;
+  state.ditherPass = null;
+  state.zx81Pass = null;
+  state.gsPass = null;
+  state.resultLinear = null;
+  state.resultPixels = null;
+  state.resultConvertOffset = 0;
+  state.attrs = null;
+  state.blockIndices = null;
+  state.modeMeta = null;
+  state.scrBytes = null;
+  state.tapBlocks = null;
+  sourceImage = null;
+  sourceImageLinear = null;
+  convertedPixels = null;
+  binaryExportState = null;
+  lastImageAnalysis = null;
+  updateAutoBadge(null, null);
+  setExportButtonsEnabled(false, currentMode);
+  UI.statusText.textContent = `Loading: ${state.pendingFileName}`;
+
   const reader = new FileReader();
-  reader.onload = e => {
-    const img = new Image();
-    img.onload = () => {
-      sourceImage = img;
-      try {
-        sourceImageLinear = decodeImageToLinearRGBA(img);
-      } catch (err) {
-        sourceImageLinear = null;
-        console.error("Unable to decode source image into linear pixels.", err);
-        UI.statusText.textContent = "Unable to decode image with WebGL2.";
-        return;
-      }
-      cropRect = { x: 0, y: 0, w: img.width, h: img.height };
-      UI.statusText.textContent = `Loaded: ${img.width}x${img.height}`;
-      UI.originalCanvas.style.display = "";
-      UI.dropZone.style.display = "none";
-      UI.inputToolbar.style.display = "";
-      UI.inputControls.style.display = "";
-      // Fresh image: clear user-override flags, analyze, then apply recommendation.
-      userOverride.ditherMode = false;
-      userOverride.colorStrategy = false;
-      lastImageAnalysis = analyzeImage(img);
-      applyRecommendation();
-      renderCropOverlay();
-      convert();
-    };
-    img.src = e.target.result;
-  };
+  state.pendingReader = reader;
+  reader.onload = handleSourceFileRead;
+  reader.onerror = handleSourceFileReadError;
+  reader.onabort = handleSourceFileReadAbort;
   reader.readAsDataURL(file);
+}
+
+function handleSourceFileRead(e) {
+  const state = conversionPipelineState;
+  if (e.target !== state.pendingReader) return;
+  if (typeof e.target.result !== "string") {
+    pipelineFail(state.id, new Error("FileReader did not return a data URL"), "Unable to read image file.");
+    return;
+  }
+  state.stage = "load-image";
+  const img = new Image();
+  state.pendingImage = img;
+  img.onload = handleSourceImageLoaded;
+  img.onerror = handleSourceImageError;
+  img.src = e.target.result;
+}
+
+function handleSourceFileReadError(e) {
+  const state = conversionPipelineState;
+  if (e.target !== state.pendingReader) return;
+  pipelineFail(state.id, e.target.error || new Error("File read failed"), "Unable to read image file.");
+}
+
+function handleSourceFileReadAbort(e) {
+  if (e.target !== conversionPipelineState.pendingReader) return;
+  conversionPipelineState.stage = "idle";
+}
+
+function handleSourceImageLoaded() {
+  const state = conversionPipelineState;
+  if (this !== state.pendingImage) return;
+  pipelineSchedule(pipelineStageDecodeLoadedImage, state.id);
+}
+
+function handleSourceImageError() {
+  const state = conversionPipelineState;
+  if (this !== state.pendingImage) return;
+  pipelineFail(state.id, new Error("Image decode failed"), "Unable to load image.");
+}
+
+// Stage 0: decode the loaded browser image into native-size linear RGBA.
+function pipelineStageDecodeLoadedImage(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "decode-image";
+  const image = state.pendingImage;
+  if (!image) {
+    pipelineFail(id, new Error("Missing pending image"), "Unable to decode image.");
+    return;
+  }
+  try {
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+    const gpu = getGPUImageProcessor();
+    if (!gpu) throw new Error("WebGL2 image processor is not available");
+    state.gpuProcessor = gpu;
+    gpuRenderAdjusted(gpu, image, width, height, NEUTRAL_ADJUSTMENTS, false, false, "work");
+    pipelineBeginGPURead(id, gpu, gpu.workFbo, width, height, "rgba", pipelineStageSourceImageDecoded, pipelineStageSourceImageDecodeFailed);
+  } catch (err) {
+    pipelineStageSourceImageDecodeFailed(id, err);
+  }
+}
+
+function pipelineStageSourceImageDecoded(id, readResult) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  const img = state.pendingImage;
+  if (!img) return;
+  const decoded = { pixels: readResult.pixels, width: readResult.width, height: readResult.height };
+  sourceImage = img;
+  sourceImageLinear = decoded;
+  state.pendingReader = null;
+  state.pendingImage = null;
+  state.sourceImage = img;
+  state.sourceImageLinear = decoded;
+  cropRect = { x: 0, y: 0, w: img.width, h: img.height };
+  UI.statusText.textContent = `Loaded: ${img.width}x${img.height}`;
+  UI.originalCanvas.style.display = "";
+  UI.dropZone.style.display = "none";
+  UI.inputToolbar.style.display = "";
+  UI.inputControls.style.display = "";
+  // Fresh image: clear user-override flags, analyze, then apply recommendation.
+  userOverride.ditherMode = false;
+  userOverride.colorStrategy = false;
+  lastImageAnalysis = analyzeImage(img);
+  applyRecommendation();
+  renderCropOverlay();
+  convert();
+}
+
+function pipelineStageSourceImageDecodeFailed(id, err) {
+  pipelineFail(id, err, "Unable to decode image with WebGL2.");
 }
 
 // --- Image analysis + auto recommendation ---
@@ -2106,7 +2394,7 @@ function recommendSettings(analysis, mode) {
     }
   }
   // Mode-specific overrides
-  const monoModes = new Set(["hires", "atari-gr8"]);
+  const monoModes = new Set(["hires", "atari-gr8", "zx81-equalized", "zx81-linear"]);
   const pixelDirect = new Set(["atari-gr9", "ql-mode8", "ql-mode4"]);
   const globalPrequant = new Set(["atari-gr15"]);
   const c64Modes = new Set(["c64-hires-ntsc", "c64-koala-ntsc", "c64-hires-pal", "c64-koala-pal"]);
@@ -2346,6 +2634,10 @@ for (const [id, control] of [
   ["inkColor", UI.inkColor],
   ["paperColor", UI.paperColor],
   ["hiresBright", UI.hiresBright],
+  ["atariGr8FgHue", UI.atariGr8FgHue],
+  ["atariGr8FgLuma", UI.atariGr8FgLuma],
+  ["atariGr8BgHue", UI.atariGr8BgHue],
+  ["atariGr8BgLuma", UI.atariGr8BgLuma],
   ["atariHue", UI.atariHue],
   ["brightness", UI.brightness],
   ["contrast", UI.contrast],
@@ -2363,6 +2655,7 @@ for (const [id, control] of [
     if (id === "saturation") UI.saturationVal.textContent = control.value;
     if (id === "gamma") UI.gammaVal.textContent = (parseInt(control.value) / 100).toFixed(2);
     if (id === "blockBlur") UI.blockBlurVal.textContent = (parseInt(control.value) / 10).toFixed(1);
+    if (id === "atariGr8FgLuma" || id === "atariGr8BgLuma") updateAtariGr8LumaLabels();
     if (id === "displayMode") {
       currentMode = UI.displayMode.value;
       updateModeUI();
@@ -2390,7 +2683,8 @@ for (const [id, control] of [
 function updateModeUI() {
   const mode = UI.displayMode.value;
   const cfg = MODES[mode] ?? MODES.standard;
-  UI.hiresColorsGroup.style.display = (mode === "hires" || mode === "atari-gr8") ? "" : "none";
+  UI.hiresColorsGroup.style.display = mode === "hires" ? "" : "none";
+  UI.atariGr8ColorsGroup.style.display = mode === "atari-gr8" ? "" : "none";
   UI.colorStrategyGroup.style.display = cfg.searchStrategy === "exhaustive" ? "" : "none";
   UI.atariHueGroup.style.display = mode === "atari-gr9" ? "" : "none";
   UI.exportTap.style.display = cfg.supportsTap ? "" : "none";
@@ -2544,733 +2838,2347 @@ const DIFFUSION_KERNELS = {
   ]
 };
 
-function isErrorDiffusion(mode) {
-  return mode in DIFFUSION_KERNELS || mode === "hilbert-fs";
+function isZX81Mode(mode) {
+  return mode === "zx81-equalized" || mode === "zx81-linear";
 }
 
-// Throttle triggering of convert by dropping the requests coming less than 50ms apart.
-const convertTimeoutMs = 50;
-let convertTimeoutId = undefined;
+const PIPELINE_WORK_BUDGET_MS = 10;
+const CROP_MAP_ROW_CHUNK = 96;
+const CPU_PREP_PIXEL_CHUNK = 65536;
+const CPU_BLUR_ROW_CHUNK = 48;
+const QUANTIZE_BLOCK_CHUNK = 64;
+const KMEANS_SAMPLE_CHUNK = 4096;
+const DITHER_ROW_CHUNK = 64;
+const DITHER_COPY_COMPONENT_CHUNK = 262144;
+const DITHER_HILBERT_PIXEL_CHUNK = 32768;
+const ZX81_CHARACTER_BLOCK_CHUNK = 128;
+const RESULT_SRGB_COMPONENT_CHUNK = 262144;
+
+let zx81GlyphCandidates = null;
+
+function fillZX81Features(values, out) {
+  let offset = 0;
+  for (let cells = 1; cells <= 8; cells *= 2) {
+    const cellSize = 8 / cells;
+    const divisor = cellSize * cellSize;
+    for (let cy = 0; cy < cells; cy++) {
+      for (let cx = 0; cx < cells; cx++) {
+        let sum = 0;
+        for (let y = 0; y < cellSize; y++) {
+          const row = (cy * cellSize + y) * 8;
+          for (let x = 0; x < cellSize; x++) {
+            sum += values[row + cx * cellSize + x];
+          }
+        }
+        out[offset] = sum / divisor;
+        offset++;
+      }
+    }
+  }
+}
+
+function getZX81GlyphCandidates() {
+  if (zx81GlyphCandidates) return zx81GlyphCandidates;
+  const candidates = [];
+  const values = new Float32Array(64);
+  for (let code = 0; code < ZX81_GLYPH_ROWS.length; code++) {
+    for (let inv = 0; inv < 2; inv++) {
+      const rows = new Uint8Array(8);
+      for (let y = 0; y < 8; y++) {
+        const row = inv ? ZX81_GLYPH_ROWS[code][y] ^ 0xFF : ZX81_GLYPH_ROWS[code][y];
+        rows[y] = row;
+        for (let x = 0; x < 8; x++) {
+          values[y * 8 + x] = (row & (0x80 >> x)) ? 0 : 1;
+        }
+      }
+      const features = new Float32Array(85);
+      fillZX81Features(values, features);
+      candidates.push({
+        code: inv ? (code | 0x80) : code,
+        rows,
+        features,
+      });
+    }
+  }
+  zx81GlyphCandidates = candidates;
+  return candidates;
+}
+
+function fillZX81BlockValues(work, width, blockX, blockY, values, equalized) {
+  for (let y = 0; y < 8; y++) {
+    for (let x = 0; x < 8; x++) {
+      const idx = ((blockY + y) * width + blockX + x) * 3;
+      let luma = 0.2126 * work[idx] + 0.7152 * work[idx + 1] + 0.0722 * work[idx + 2];
+      if (equalized) luma = linearToSrgb(clamp01(luma)) / 255;
+      values[y * 8 + x] = clamp01(luma);
+    }
+  }
+}
+
+function scoreZX81Features(source, candidate) {
+  let score = 0;
+  let offset = 0;
+  for (let level = 0; level < ZX81_FIT_COUNTS.length; level++) {
+    const count = ZX81_FIT_COUNTS[level];
+    let levelError = 0;
+    for (let i = 0; i < count; i++) {
+      const d = source[offset + i] - candidate[offset + i];
+      levelError += d * d;
+    }
+    score += ZX81_FIT_WEIGHTS[level] * levelError / count;
+    offset += count;
+  }
+  return score;
+}
+
+function paintZX81Glyph(result, width, blockX, blockY, rows) {
+  for (let y = 0; y < 8; y++) {
+    const row = rows[y];
+    for (let x = 0; x < 8; x++) {
+      const value = (row & (0x80 >> x)) ? 0 : 1;
+      const idx = ((blockY + y) * width + blockX + x) * 3;
+      result[idx] = value;
+      result[idx + 1] = value;
+      result[idx + 2] = value;
+    }
+  }
+}
 
 // --- Main conversion pipeline ---
-function convert() {
-  currentMode = UI.displayMode.value;
-  const modeCfg = MODES[currentMode];
-  const palettes = PALETTES[currentMode];
-  screenWidth = modeCfg.w;
-  screenHeight = modeCfg.h;
-  const ditherMode = UI.ditherMode.value;
-  const colorStrategy = UI.colorStrategy.value;
-  const adjustments = getAdjustmentParams();
-  useOklab = UI.oklabDist ? UI.oklabDist.checked : false;
-  const serpentine = UI.serpentine ? UI.serpentine.checked : true;
-  const gaussSeidel = UI.gaussSeidel ? UI.gaussSeidel.checked : false;
-  const blockBlurRadius = UI.blockBlur ? parseInt(UI.blockBlur.value) / 10 : 0;
+// --- Conversion pipeline state and scheduler ---
+const conversionPipelineState = {
+  id: 0,
+  scheduledTimeout: undefined,
+  stage: "idle",
+  t0: 0,
+  timings: null,
+  timingStage: "",
+  timingStageStart: 0,
+  pendingReader: null,
+  pendingImage: null,
+  pendingFileName: "",
+  sourceImage: null,
+  sourceImageLinear: null,
+  mode: "standard",
+  modeCfg: MODES.standard,
+  palettes: PALETTES.standard,
+  screenWidth: 256,
+  screenHeight: 192,
+  cropRect: null,
+  cropStretch: true,
+  cropFillLinear: [0, 0, 0, 1],
+  ditherMode: "floyd-steinberg",
+  colorStrategy: "weighted-average",
+  colorMasks: null,
+  hiresPair: 0,
+  inkColor: 0,
+  paperColor: 0,
+  hiresBright: false,
+  atariGr8FgHue: 0,
+  atariGr8FgLuma: 7,
+  atariGr8BgHue: 0,
+  atariGr8BgLuma: 0,
+  atariHue: 0,
+  adjustments: null,
+  serpentine: true,
+  gaussSeidel: false,
+  blockBlurRadius: 0,
+  srcLinear: null,
+  cropMap: null,
+  work: null,
+  blockWork: null,
+  gpuProcessor: null,
+  gpuRead: null,
+  cpuPrep: null,
+  quantizeWork: null,
+  quantizePass: null,
+  ditherPass: null,
+  zx81Pass: null,
+  gsPass: null,
+  resultLinear: null,
+  resultPixels: null,
+  resultConvertOffset: 0,
+  attrs: null,
+  blockIndices: null,
+  modeMeta: null,
+  scrBytes: null,
+  tapBlocks: null,
+};
 
+function pipelineIsCurrent(id) {
+  return conversionPipelineState.id === id;
+}
+
+function pipelineClearScheduledTimeout() {
+  if (conversionPipelineState.scheduledTimeout === undefined) return;
+  clearTimeout(conversionPipelineState.scheduledTimeout);
+  conversionPipelineState.scheduledTimeout = undefined;
+}
+
+function pipelineCancelPendingGPURead(id = null) {
+  const read = conversionPipelineState.gpuRead;
+  if (!read) return;
+  if (id !== null && read.id !== id) return;
+  if (read.sync) read.gpu.gl.deleteSync(read.sync);
+  conversionPipelineState.gpuRead = null;
+}
+
+function pipelineSchedule(stageFn, id, delay = 0) {
+  if (!pipelineIsCurrent(id)) return;
+  pipelineClearScheduledTimeout();
+  conversionPipelineState.scheduledTimeout = setTimeout(stageFn, delay, id);
+}
+
+function pipelineWorkDeadline() {
+  return performance.now() + PIPELINE_WORK_BUDGET_MS;
+}
+
+function pipelineShouldYield(deadline) {
+  return performance.now() >= deadline;
+}
+
+function pipelineResetTimings(state) {
+  state.timings = { map: 0, prep: 0, quant: 0, apply: 0, output: 0 };
+  state.timingStage = "";
+  state.timingStageStart = 0;
+}
+
+function pipelineSwitchTiming(state, nextStage) {
+  const now = performance.now();
+  if (!state.timings) pipelineResetTimings(state);
+  if (state.timingStage === nextStage) return;
+  if (state.timingStage && state.timingStageStart > 0) {
+    state.timings[state.timingStage] += now - state.timingStageStart;
+  }
+  state.timingStage = nextStage;
+  state.timingStageStart = now;
+}
+
+function pipelineFinishTiming(state) {
+  if (!state.timings || !state.timingStage) return;
+  const now = performance.now();
+  if (state.timingStageStart > 0) {
+    state.timings[state.timingStage] += now - state.timingStageStart;
+  }
+  state.timingStage = "";
+  state.timingStageStart = 0;
+}
+
+function pipelineTimingReport(state) {
+  const timings = state.timings || {};
+  const map = Math.round(timings.map || 0);
+  const prep = Math.round(timings.prep || 0);
+  const quant = Math.round(timings.quant || 0);
+  const apply = Math.round(timings.apply || 0);
+  const output = Math.round(timings.output || 0);
+  return `map ${map}ms, prep ${prep}ms, quant ${quant}ms, apply ${apply}ms, output ${output}ms`;
+}
+
+function pipelineFail(id, err, message) {
+  if (!pipelineIsCurrent(id)) return;
+  conversionPipelineState.stage = "failed";
+  console.error(message, err);
+  UI.statusText.textContent = message;
+  setExportButtonsEnabled(false, currentMode);
+}
+
+function convert() {
+  const state = conversionPipelineState;
+  state.id++;
+  pipelineClearScheduledTimeout();
+  pipelineCancelPendingGPURead();
+  state.stage = "settling";
+  state.t0 = 0;
+  pipelineResetTimings(state);
+  state.sourceImage = sourceImage;
+  state.sourceImageLinear = sourceImageLinear;
+  state.mode = UI.displayMode.value;
+  state.modeCfg = MODES[state.mode];
+  state.palettes = PALETTES[state.mode];
+  state.screenWidth = state.modeCfg.w;
+  state.screenHeight = state.modeCfg.h;
+  state.cropRect = cropRect ? { x: cropRect.x, y: cropRect.y, w: cropRect.w, h: cropRect.h } : null;
+  state.cropStretch = UI.cropStretch ? UI.cropStretch.checked : true;
+  state.cropFillLinear = [
+    linearBySRGB[cropFillColor.r],
+    linearBySRGB[cropFillColor.g],
+    linearBySRGB[cropFillColor.b],
+    1,
+  ];
+  state.ditherMode = UI.ditherMode.value;
+  state.colorStrategy = UI.colorStrategy.value;
+  state.colorMasks = enabledColorMasks(state.mode);
+  state.hiresPair = parseInt(UI.hiresPair.value) || 0;
+  state.inkColor = parseInt(UI.inkColor.value) || 0;
+  state.paperColor = parseInt(UI.paperColor.value) || 0;
+  state.hiresBright = UI.hiresBright ? UI.hiresBright.checked : false;
+  state.atariGr8FgHue = parseInt(UI.atariGr8FgHue.value, 10);
+  state.atariGr8FgLuma = parseInt(UI.atariGr8FgLuma.value, 10);
+  state.atariGr8BgHue = parseInt(UI.atariGr8BgHue.value, 10);
+  state.atariGr8BgLuma = parseInt(UI.atariGr8BgLuma.value, 10);
+  if (!Number.isFinite(state.atariGr8FgHue)) state.atariGr8FgHue = 0;
+  if (!Number.isFinite(state.atariGr8FgLuma)) state.atariGr8FgLuma = 7;
+  if (!Number.isFinite(state.atariGr8BgHue)) state.atariGr8BgHue = 0;
+  if (!Number.isFinite(state.atariGr8BgLuma)) state.atariGr8BgLuma = 0;
+  state.atariHue = parseInt(UI.atariHue.value) || 0;
+  state.adjustments = getAdjustmentParams();
+  state.serpentine = UI.serpentine ? UI.serpentine.checked : true;
+  state.gaussSeidel = UI.gaussSeidel ? UI.gaussSeidel.checked : false;
+  state.blockBlurRadius = UI.blockBlur ? parseInt(UI.blockBlur.value) / 10 : 0;
+  state.srcLinear = null;
+  state.cropMap = null;
+  state.work = null;
+  state.blockWork = null;
+  state.gpuProcessor = null;
+  state.gpuRead = null;
+  state.cpuPrep = null;
+  state.quantizeWork = null;
+  state.quantizePass = null;
+  state.ditherPass = null;
+  state.zx81Pass = null;
+  state.gsPass = null;
+  state.resultLinear = null;
+  state.resultPixels = null;
+  state.resultConvertOffset = 0;
+  state.attrs = null;
+  state.blockIndices = null;
+  state.modeMeta = null;
+  state.scrBytes = null;
+  state.tapBlocks = null;
+
+  currentMode = state.mode;
+  screenWidth = state.screenWidth;
+  screenHeight = state.screenHeight;
+  useOklab = UI.oklabDist ? UI.oklabDist.checked : false;
   UI.statusText.textContent = "Converting...";
   binaryExportState = null;
   setExportButtonsEnabled(false, currentMode);
 
-  if (convertTimeoutId !== undefined) {
-    clearTimeout(convertTimeoutId);
+  pipelineSchedule(pipelineStageMapSourceToTarget, state.id);
+}
+
+// Stage 1: map the selected source crop into the target mode resolution.
+function pipelineStageMapSourceToTarget(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "map-source";
+  state.t0 = performance.now();
+  state.timingStage = "map";
+  state.timingStageStart = state.t0;
+
+  if (!state.sourceImage || !state.sourceImageLinear) {
+    pipelineFail(id, new Error("Missing source image"), "Source image is not ready for conversion.");
+    return;
   }
 
-  // Use setTimeout to keep UI responsive
-  convertTimeoutId = setTimeout(() => {
-    convertTimeoutId = undefined;
-    const t0 = performance.now();
+  const activeCropRect = state.cropRect;
+  const cropW = activeCropRect ? activeCropRect.w : state.sourceImage.width;
+  const cropH = activeCropRect ? activeCropRect.h : state.sourceImage.height;
+  const cropX = activeCropRect ? activeCropRect.x : 0;
+  const cropY = activeCropRect ? activeCropRect.y : 0;
+  const stretchCrop = state.cropStretch;
+  let dx = 0, dy = 0, dw = state.screenWidth, dh = state.screenHeight;
+  if (!stretchCrop) {
+    const pxAspect = getModeDisplayAspect(state.modeCfg);
+    const targetDispW = state.screenWidth * pxAspect;
+    const targetDispH = state.screenHeight;
+    const scale = Math.min(targetDispW / cropW, targetDispH / cropH);
+    dw = Math.round(cropW * scale / pxAspect);
+    dh = Math.round(cropH * scale);
+    dx = Math.round((state.screenWidth - dw) / 2);
+    dy = Math.round((state.screenHeight - dh) / 2);
+  }
+  const outWidth = state.screenWidth;
+  const outHeight = state.screenHeight;
+  state.cropMap = {
+    outPixels: ensureLinearRGBABuffer(state.srcLinear, outWidth, outHeight),
+    outWidth,
+    outHeight,
+    source: state.sourceImageLinear,
+    cropX,
+    cropY,
+    cropW,
+    cropH,
+    dx,
+    dy,
+    dw,
+    dh,
+    fill: state.cropFillLinear,
+    scaleX: dw > 0 ? cropW / dw : 0,
+    scaleY: dh > 0 ? cropH / dh : 0,
+    startX: Math.max(0, dx),
+    startY: Math.max(0, dy),
+    endX: Math.min(outWidth, dx + dw),
+    endY: Math.min(outHeight, dy + dh),
+    y: 0,
+  };
+  pipelineStageMapSourceRows(id);
+}
 
-    // Step A: Map the cropped region to the target. Stretch mode fills the
-    // whole target grid; otherwise preserve the crop aspect and pad with the
-    // selected crop-fill color.
-    const cropW = cropRect ? cropRect.w : sourceImage.width;
-    const cropH = cropRect ? cropRect.h : sourceImage.height;
-    const cropX = cropRect ? cropRect.x : 0;
-    const cropY = cropRect ? cropRect.y : 0;
-    const stretchCrop = UI.cropStretch ? UI.cropStretch.checked : true;
-    let dx = 0, dy = 0, dw = screenWidth, dh = screenHeight;
-    if (!stretchCrop) {
-      const pxAspect = getModeDisplayAspect(modeCfg);
-      const targetDispW = screenWidth * pxAspect; // target width in display units
-      const targetDispH = screenHeight;           // target height in display units
-      const scale = Math.min(targetDispW / cropW, targetDispH / cropH);
-      // Convert back to pixel units: width in pixels = width in display units / pxAspect
-      dw = Math.round(cropW * scale / pxAspect);
-      dh = Math.round(cropH * scale);
-      dx = Math.round((screenWidth - dw) / 2);
-      dy = Math.round((screenHeight - dh) / 2);
+// Stage 1a: resample a bounded number of target rows from the selected crop.
+function pipelineStageMapSourceRows(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "map-source-rows";
+  const map = state.cropMap;
+  if (!map) {
+    pipelineFail(id, new Error("Missing crop map state"), "Unable to map source image.");
+    return;
+  }
+  try {
+    const outPixels = map.outPixels;
+    const fill = map.fill;
+    const source = map.source;
+    const pixels = source.pixels;
+    const width = source.width;
+    const height = source.height;
+    const deadline = pipelineWorkDeadline();
+    while (map.y < map.outHeight) {
+      const yEnd = Math.min(map.outHeight, map.y + CROP_MAP_ROW_CHUNK);
+      for (let y = map.y; y < yEnd; y++) {
+        let offset = y * map.outWidth * 4;
+        for (let x = 0; x < map.outWidth; x++) {
+          outPixels[offset + 0] = fill[0];
+          outPixels[offset + 1] = fill[1];
+          outPixels[offset + 2] = fill[2];
+          outPixels[offset + 3] = fill[3];
+          offset += 4;
+        }
+        if (map.dw <= 0 || map.dh <= 0 || y < map.startY || y >= map.endY) continue;
+        const localY = y - map.dy;
+        const fy = map.cropY + Math.min(Math.max((localY + 0.5) * map.scaleY - 0.5, 0), map.cropH - 1);
+        for (let x = map.startX; x < map.endX; x++) {
+          const localX = x - map.dx;
+          const fx = map.cropX + Math.min(Math.max((localX + 0.5) * map.scaleX - 0.5, 0), map.cropW - 1);
+          sampleLinearRGBA(pixels, width, height, fx, fy, outPixels, (y * map.outWidth + x) * 4);
+        }
+      }
+      map.y = yEnd;
+      if (pipelineShouldYield(deadline)) break;
     }
-    const cropFillLinear = [
-      linearBySRGB[cropFillColor.r],
-      linearBySRGB[cropFillColor.g],
-      linearBySRGB[cropFillColor.b],
-      1,
-    ];
-
-    if (!sourceImageLinear) throw new Error("Source image is not decoded into linear color data");
-    const srcLinear = scaleLinearCropToRGBA(
-      null,
-      screenWidth,
-      screenHeight,
-      sourceImageLinear,
-      cropX,
-      cropY,
-      cropW,
-      cropH,
-      dx,
-      dy,
-      dw,
-      dh,
-      cropFillLinear
-    );
-    const prepared = prepareLinearImageWork(srcLinear, {
-      width: screenWidth,
-      height: screenHeight,
-      adjustments,
-      blockBlurRadius,
-    });
-    const { work, blockWork } = prepared;
-
-    // Result arrays
-    const resultLinear = new Float32Array(screenWidth * screenHeight * 3);
-    let attrs = null;
-
-    // Per-block color picks, keyed [by][bx] → array of RGB triples.
-    // blockIndices parallel-tracks palette indices for binary encoding.
-    let blockColors = null;
-    let blockIndices = null;
-    let modeMeta = {};
-    let bW, bH, numAttrCols, numAttrRows;
-
-    bW = modeCfg.blockW;
-    bH = modeCfg.blockH;
-    numAttrCols = Math.max(1, Math.round(screenWidth / bW));
-    numAttrRows = Math.max(1, Math.round(screenHeight / bH));
-
-    const strategy = modeCfg.searchStrategy;
-
-    // Initialize blockColors/blockIndices grids
-    blockColors = new Array(numAttrRows);
-    blockIndices = new Array(numAttrRows);
-    for (let by = 0; by < numAttrRows; by++) {
-      blockColors[by] = new Array(numAttrCols);
-      blockIndices[by] = new Array(numAttrCols);
+    if (map.y < map.outHeight) {
+      pipelineSchedule(pipelineStageMapSourceRows, id);
+      return;
     }
-    const colorMasks = enabledColorMasks(currentMode);
+    state.srcLinear = outPixels;
+    state.cropMap = null;
+    pipelineSwitchTiming(state, "prep");
+    pipelineStagePrepareLinearWork(id);
+  } catch (err) {
+    pipelineFail(id, err, "Unable to map source image.");
+  }
+}
 
-    if (strategy === "exhaustive" && (currentMode === "standard" || currentMode === "ts-standard" || currentMode === "ecm")) {
-      attrs = new Uint8Array(numAttrCols * numAttrRows);
-      // Threshold-based dither modes need distinct colour pairs to produce a
-      // visible pattern on gradients; otherwise the search picks a single
-      // palette colour that's close to the block's mean and flattens the
-      // dither. We allow ink==paper for uniform blocks (no dither needed).
-      const isThreshold = isThresholdDither(ditherMode);
-      // For strategies which count color frequencies.
-      // Values are automatically reset to all 0 for each attribute iteration.
-      const colorCounts = [new Uint8Array(8), new Uint8Array(8)];
-      for (let by = 0; by < numAttrRows; by++) {
-        for (let bx = 0; bx < numAttrCols; bx++) {
-          colorCounts[0].fill(0);
-          colorCounts[1].fill(0);
-          const blockX = bx * bW, blockY = by * bH;
-          let bestInk = 0, bestPaper = 0, bestBright = 0, bestError = Infinity;
+// Stage 2: adjust colors and optionally blur on GPU, then read pixels back asynchronously.
+function pipelineStagePrepareLinearWork(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "prepare-work";
+  try {
+    const gpu = getGPUImageProcessor();
+    if (gpu) {
+      state.gpuProcessor = gpu;
+      gpuRenderAdjustedLinear(gpu, state.srcLinear, state.screenWidth, state.screenHeight, state.adjustments, false, false, "work");
+      pipelineBeginGPURead(id, gpu, gpu.workFbo, state.screenWidth, state.screenHeight, "rgb", pipelineStageAdjustedLinearWorkRead, pipelineStagePrepareLinearWorkGPUFailed);
+      return;
+    }
+  } catch (err) {
+    warnGPUFallback(err);
+  }
+  pipelineStagePrepareLinearWorkCPU(id);
+}
 
-          // Compute block luma range to decide if block is uniform
-          let lumaMin = Infinity, lumaMax = -Infinity;
-          for (let py = 0; py < bH; py++) {
-            for (let px = 0; px < bW; px++) {
-              const i = ((blockY + py) * screenWidth + (blockX + px)) * 3;
-              const r = blockWork[i + 0];
-              const g = blockWork[i + 1];
-              const b = blockWork[i + 2];
-              const luma = r * 0.2126 + g * 0.7152 + b * 0.0722;
-              lumaMin = Math.min(luma, lumaMin);
-              lumaMax = Math.max(luma, lumaMax);
-            }
+// Stage 2a: receive GPU-adjusted linear pixels, then optionally start GPU blur.
+function pipelineStageAdjustedLinearWorkRead(id, readResult) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.work = readResult.pixels;
+  if (state.blockBlurRadius <= 0) {
+    state.blockWork = state.work;
+    pipelineStageLinearWorkPrepared(id);
+    return;
+  }
+  try {
+    const gpu = state.gpuProcessor;
+    if (!gpu) throw new Error("Missing GPU processor for blur stage");
+    gpuRenderBlur(gpu, state.blockBlurRadius);
+    pipelineBeginGPURead(id, gpu, gpu.blurFbo, state.screenWidth, state.screenHeight, "rgb", pipelineStageBlurredLinearWorkRead, pipelineStagePrepareLinearWorkGPUFailed);
+  } catch (err) {
+    pipelineStagePrepareLinearWorkGPUFailed(id, err);
+  }
+}
+
+// Stage 2b: receive GPU-blurred pixels for attribute/block color selection.
+function pipelineStageBlurredLinearWorkRead(id, readResult) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.blockWork = readResult.pixels;
+  pipelineStageLinearWorkPrepared(id);
+}
+
+// Stage 2 fallback: if GPU preparation fails, continue with the CPU implementation.
+function pipelineStagePrepareLinearWorkGPUFailed(id, err) {
+  if (!pipelineIsCurrent(id)) return;
+  warnGPUFallback(err);
+  pipelineStagePrepareLinearWorkCPU(id);
+}
+
+// Stage 2 fallback setup: initialize state for chunked CPU color adjustment.
+function pipelineStagePrepareLinearWorkCPU(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "prepare-work-cpu-setup";
+  try {
+    const total = state.screenWidth * state.screenHeight;
+    state.cpuPrep = {
+      linearRGBA: state.srcLinear,
+      width: state.screenWidth,
+      height: state.screenHeight,
+      total,
+      adjustments: state.adjustments,
+      blockBlurRadius: state.blockBlurRadius,
+      work: new Float32Array(total * 3),
+      blurTemp: null,
+      blockWork: null,
+      offset: 0,
+      y: 0,
+      blurSpread: 1 / Math.max(state.blockBlurRadius * state.blockBlurRadius, 1),
+    };
+    pipelineStagePrepareLinearWorkCPUAdjust(id);
+  } catch (err) {
+    pipelineFail(id, err, "Unable to prepare image pixels for conversion.");
+  }
+}
+
+// Stage 2 fallback worker: adjust a bounded chunk of linear pixels on CPU.
+function pipelineStagePrepareLinearWorkCPUAdjust(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "prepare-work-cpu-adjust";
+  const prep = state.cpuPrep;
+  if (!prep) {
+    pipelineFail(id, new Error("Missing CPU prep state"), "Unable to prepare image pixels for conversion.");
+    return;
+  }
+  try {
+    const deadline = pipelineWorkDeadline();
+    while (prep.offset < prep.total) {
+      const end = Math.min(prep.total, prep.offset + CPU_PREP_PIXEL_CHUNK);
+      for (let i = prep.offset; i < end; i++) {
+        const si = i * 4;
+        const di = i * 3;
+        writeAdjustedLinearColor(prep.work, di, prep.linearRGBA[si], prep.linearRGBA[si + 1], prep.linearRGBA[si + 2], prep.adjustments);
+      }
+      prep.offset = end;
+      if (pipelineShouldYield(deadline)) break;
+    }
+    if (prep.offset < prep.total) {
+      pipelineSchedule(pipelineStagePrepareLinearWorkCPUAdjust, id);
+      return;
+    }
+    state.work = prep.work;
+    if (prep.blockBlurRadius <= 0) {
+      state.blockWork = prep.work;
+      state.cpuPrep = null;
+      pipelineStageLinearWorkPrepared(id);
+      return;
+    }
+    prep.blurTemp = new Float32Array(prep.work.length);
+    prep.blockWork = new Float32Array(prep.work.length);
+    prep.y = 0;
+    pipelineStagePrepareLinearWorkCPUBlurHorizontal(id);
+  } catch (err) {
+    pipelineFail(id, err, "Unable to prepare image pixels for conversion.");
+  }
+}
+
+// Stage 2 fallback worker: process a bounded number of horizontal blur rows.
+function pipelineStagePrepareLinearWorkCPUBlurHorizontal(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "prepare-work-cpu-blur-x";
+  const prep = state.cpuPrep;
+  if (!prep || !prep.blurTemp) {
+    pipelineFail(id, new Error("Missing CPU blur state"), "Unable to blur image pixels for conversion.");
+    return;
+  }
+  try {
+    const deadline = pipelineWorkDeadline();
+    while (prep.y < prep.height) {
+      const yEnd = Math.min(prep.height, prep.y + CPU_BLUR_ROW_CHUNK);
+      for (let y = prep.y; y < yEnd; y++) {
+        for (let x = 0; x < prep.width; x++) {
+          let sr = 0, sg = 0, sb = 0, weightSum = 0;
+          for (let k = -16; k <= 16; k++) {
+            if (Math.abs(k) > prep.blockBlurRadius) continue;
+            let xi = x + k;
+            if (xi < 0) xi = 0; else if (xi >= prep.width) xi = prep.width - 1;
+            const i = (y * prep.width + xi) * 3;
+            const w = Math.exp(-(k * k) * prep.blurSpread);
+            sr += prep.work[i] * w; sg += prep.work[i+1] * w; sb += prep.work[i+2] * w;
+            weightSum += w;
           }
-          const requireDistinct = isThreshold && (lumaMax - lumaMin) > 0.06;
+          const o = (y * prep.width + x) * 3;
+          prep.blurTemp[o] = sr / weightSum; prep.blurTemp[o+1] = sg / weightSum; prep.blurTemp[o+2] = sb / weightSum;
+        }
+      }
+      prep.y = yEnd;
+      if (pipelineShouldYield(deadline)) break;
+    }
+    if (prep.y < prep.height) {
+      pipelineSchedule(pipelineStagePrepareLinearWorkCPUBlurHorizontal, id);
+      return;
+    }
+    prep.y = 0;
+    pipelineStagePrepareLinearWorkCPUBlurVertical(id);
+  } catch (err) {
+    pipelineFail(id, err, "Unable to blur image pixels for conversion.");
+  }
+}
 
-          if (colorStrategy === "per-block") {
-            const cols = [0, 0];
-            for (let bright = 0; bright <= 1; bright++) {
-              const pal = palettes[bright];
-              for (let ink = 0; ink < 8; ink++) {
-                if (!isColorDisabled(currentMode, bright, ink)) {
-                  const paperStart = requireDistinct ? ink + 1 : ink;
-                  for (let paper = paperStart; paper < 8; paper++) {
-                    if (!isColorDisabled(currentMode, bright, paper)) {
-                      cols[0] = pal[ink];
-                      cols[1] = pal[paper];
-                      const err = evaluateBlock(blockWork, blockX, blockY, bW, bH, cols, ditherMode);
-                      if (err < bestError) {
-                        bestError = err;
-                        bestInk = ink;
-                        bestPaper = paper;
-                        bestBright = bright;
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          } else if (colorStrategy === "pca") {
-            // PCA-based pick: find the dominant color-variance axis for the
-            // block and use its extremes as ink/paper targets. Great on
-            // blocks with a clear gradient direction (skin, sky, edges).
-            // Power-iteration for the top eigenvector of the 3×3 RGB
-            // covariance matrix (10 steps is plenty).
-            let mr = 0, mg = 0, mb = 0, n = 0;
-            for (let py = 0; py < bH; py++) {
-              for (let px = 0; px < bW; px++) {
-                const idx = ((blockY + py) * screenWidth + (blockX + px)) * 3;
-                mr += blockWork[idx]; mg += blockWork[idx+1]; mb += blockWork[idx+2];
-                n++;
-              }
-            }
-            mr /= n; mg /= n; mb /= n;
-            let c00=0, c01=0, c02=0, c11=0, c12=0, c22=0;
-            for (let py = 0; py < bH; py++) {
-              for (let px = 0; px < bW; px++) {
-                const idx = ((blockY + py) * screenWidth + (blockX + px)) * 3;
-                const dr = blockWork[idx] - mr;
-                const dg = blockWork[idx+1] - mg;
-                const db = blockWork[idx+2] - mb;
-                c00 += dr*dr; c01 += dr*dg; c02 += dr*db;
-                c11 += dg*dg; c12 += dg*db; c22 += db*db;
-              }
-            }
-            // Power iteration
-            let vx = 1, vy = 1, vz = 1;
-            for (let it = 0; it < 10; it++) {
-              const nx = c00*vx + c01*vy + c02*vz;
-              const ny = c01*vx + c11*vy + c12*vz;
-              const nz = c02*vx + c12*vy + c22*vz;
-              const mag = Math.sqrt(nx*nx + ny*ny + nz*nz) || 1;
-              vx = nx / mag; vy = ny / mag; vz = nz / mag;
-            }
-            // Project pixels onto axis; track min/max and their RGB centroids
-            let tmin = Infinity, tmax = -Infinity;
-            let minR=0, minG=0, minB=0, maxR=0, maxG=0, maxB=0;
-            for (let py = 0; py < bH; py++) {
-              for (let px = 0; px < bW; px++) {
-                const idx = ((blockY + py) * screenWidth + (blockX + px)) * 3;
-                const dr = blockWork[idx+0] - mr;
-                const dg = blockWork[idx+1] - mg;
-                const db = blockWork[idx+2] - mb;
-                const t = dr*vx + dg*vy + db*vz;
-                if (t < tmin) {
-                  tmin = t; minR = blockWork[idx]; minG = blockWork[idx+1]; minB = blockWork[idx+2];
-                }
-                if (t > tmax) {
-                  tmax = t; maxR = blockWork[idx]; maxG = blockWork[idx+1]; maxB = blockWork[idx+2];
-                }
-              }
-            }
-            // Find nearest palette entries (respecting bright + disabled)
-            for (let bright = 0; bright <= 1; bright++) {
-              const pal = palettes[bright];
-              // Nearest to min and max, filtering disabled
-              let lowIdx = 0, lowD = Infinity, hiIdx = 0, hiD = Infinity;
-              for (let i = 0; i < 8; i++) {
-                if (isColorDisabled(currentMode, bright, i)) continue;
-                const d0 = colorDist([minR, minG, minB], pal[i]);
-                if (d0 < lowD) { lowD = d0; lowIdx = i; }
-                const d1 = colorDist([maxR, maxG, maxB], pal[i]);
-                if (d1 < hiD) { hiD = d1; hiIdx = i; }
-              }
-              if (requireDistinct && lowIdx === hiIdx) continue;
-              const err = evaluateBlock(blockWork, blockX, blockY, bW, bH,
-                                        [pal[lowIdx], pal[hiIdx]], ditherMode);
-              if (err < bestError) {
-                bestError = err; bestInk = lowIdx; bestPaper = hiIdx; bestBright = bright;
-              }
-            }
-          } else if (colorStrategy === "weighted-average") {
-            const result = [0, 0];
-            for (let bright = 0; bright <= 1; bright++) {
-              const pal = palettes[bright];
-              const colorMask = colorMasks[bright];
-              const err = getBestWeightedColorPair(result, blockWork, blockX, blockY, bW, bH, pal, colorMask);
-              if (err < bestError) {
-                bestError = err;
-                bestPaper = result[0];
-                bestInk = result[1];
-                bestBright = bright;
-              }
-            }
-          } else { // colorStrategy === "global" - Global pre-quantize + per-block
-            // Count the closest colors separately for dark/bright palettes.
-            for (let py = 0; py < bH; py++) {
-              for (let px = 0; px < bW; px++) {
-                const i = ((blockY + py) * screenWidth + (blockX + px)) * 3;
-                const r = blockWork[i + 0];
-                const g = blockWork[i + 1];
-                const b = blockWork[i + 2];
-                colorCounts[0][quantizeNearest(r, g, b, palettes[0])]++;
-                colorCounts[1][quantizeNearest(r, g, b, palettes[1])]++;
-              }
-            }
-            // Find a single most represented color / brightness.
-            let topColorIndex = -1;
-            let topBright = 0;
-            for (let bright = 0; bright <= 1; bright++) {
-              const colorMask = colorMasks[bright];
-              const counts = colorCounts[bright];
-              for (let i = 0; i < 8; i++) {
-                if (colorMask[i] && (topColorIndex < 0 || counts[i] > counts[topColorIndex])) {
-                  topColorIndex = i;
-                  topBright = bright;
-                }
-              }
-            }
-            // Test the top color with other colors of the same brightness.
-            if (topColorIndex >= 0) {
-              const pal = palettes[topBright];
-              const colorMask = colorMasks[topBright];
-              for (let colorIndex = 0; colorIndex < 8; colorIndex++) {
-                if (colorMask[colorIndex] && colorIndex !== topColorIndex) {
-                  const err = evaluateBlock(blockWork, blockX, blockY, bW, bH, [pal[topColorIndex], pal[colorIndex]], ditherMode);
+// Stage 2 fallback worker: process a bounded number of vertical blur rows.
+function pipelineStagePrepareLinearWorkCPUBlurVertical(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "prepare-work-cpu-blur-y";
+  const prep = state.cpuPrep;
+  if (!prep || !prep.blurTemp || !prep.blockWork) {
+    pipelineFail(id, new Error("Missing CPU blur state"), "Unable to blur image pixels for conversion.");
+    return;
+  }
+  try {
+    const deadline = pipelineWorkDeadline();
+    while (prep.y < prep.height) {
+      const yEnd = Math.min(prep.height, prep.y + CPU_BLUR_ROW_CHUNK);
+      for (let y = prep.y; y < yEnd; y++) {
+        for (let x = 0; x < prep.width; x++) {
+          let sr = 0, sg = 0, sb = 0, weightSum = 0;
+          for (let k = -16; k <= 16; k++) {
+            if (Math.abs(k) > prep.blockBlurRadius) continue;
+            let yi = y + k;
+            if (yi < 0) yi = 0; else if (yi >= prep.height) yi = prep.height - 1;
+            const i = (yi * prep.width + x) * 3;
+            const w = Math.exp(-(k * k) * prep.blurSpread);
+            sr += prep.blurTemp[i] * w; sg += prep.blurTemp[i+1] * w; sb += prep.blurTemp[i+2] * w;
+            weightSum += w;
+          }
+          const o = (y * prep.width + x) * 3;
+          prep.blockWork[o] = sr / weightSum; prep.blockWork[o+1] = sg / weightSum; prep.blockWork[o+2] = sb / weightSum;
+        }
+      }
+      prep.y = yEnd;
+      if (pipelineShouldYield(deadline)) break;
+    }
+    if (prep.y < prep.height) {
+      pipelineSchedule(pipelineStagePrepareLinearWorkCPUBlurVertical, id);
+      return;
+    }
+    state.blockWork = prep.blockWork;
+    state.cpuPrep = null;
+    pipelineStageLinearWorkPrepared(id);
+  } catch (err) {
+    pipelineFail(id, err, "Unable to blur image pixels for conversion.");
+  }
+}
+
+// Stage 2 completion: persist prepared pixels and schedule mode-specific quantization.
+function pipelineStageLinearWorkPrepared(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  pipelineSwitchTiming(state, "quant");
+  pipelineStageQuantizeMode(id);
+}
+
+// Stage 3: run the mode-specific quantizer into a linear RGB result buffer.
+function pipelineStageQuantizeMode(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "quantize";
+  const mode = state.mode;
+  const modeCfg = state.modeCfg;
+  const screenW = state.screenWidth;
+  const screenH = state.screenHeight;
+  const palettes = state.palettes;
+  // Result arrays
+  const resultLinear = new Float32Array(screenW * screenH * 3);
+  let attrs = null;
+
+  // Per-block color picks, keyed [by][bx] → array of RGB triples.
+  // blockIndices parallel-tracks palette indices for binary encoding.
+  let bW = modeCfg.blockW;
+  let bH = modeCfg.blockH;
+  let numAttrCols = Math.max(1, Math.round(screenW / bW));
+  let numAttrRows = Math.max(1, Math.round(screenH / bH));
+  let blockColors = new Array(numAttrRows);
+  let blockIndices = new Array(numAttrRows);
+  const modeMeta = {};
+
+  const strategy = modeCfg.searchStrategy;
+
+  // Initialize blockColors/blockIndices grids
+  for (let by = 0; by < numAttrRows; by++) {
+    blockColors[by] = new Array(numAttrCols);
+    blockIndices[by] = new Array(numAttrCols);
+  }
+  if (strategy === "exhaustive" && (mode === "standard" || mode === "ts-standard" || mode === "ecm")) {
+    attrs = new Uint8Array(numAttrCols * numAttrRows);
+    state.quantizeWork = {
+      resultLinear,
+      attrs,
+      blockColors,
+      blockIndices,
+      modeMeta,
+      bW,
+      bH,
+      numAttrCols,
+      numAttrRows,
+      strategy,
+    };
+    state.quantizePass = {
+      offset: 0,
+      colorCounts: [new Uint8Array(8), new Uint8Array(8)],
+    };
+    pipelineStageQuantizeZXExhaustiveBlocks(id);
+    return;
+  }
+  if (strategy === "exhaustive" && (mode === "c64-hires-ntsc" || mode === "c64-hires-pal")) {
+    attrs = new Uint8Array(numAttrCols * numAttrRows);
+    state.quantizeWork = {
+      resultLinear,
+      attrs,
+      blockColors,
+      blockIndices,
+      modeMeta,
+      bW,
+      bH,
+      numAttrCols,
+      numAttrRows,
+      strategy,
+    };
+    state.quantizePass = { offset: 0 };
+    pipelineStageQuantizeC64HiresBlocks(id);
+    return;
+  }
+  if (strategy === "exhaustive" && (mode === "c64-koala-ntsc" || mode === "c64-koala-pal")) {
+    state.quantizeWork = {
+      resultLinear,
+      attrs: null,
+      blockColors,
+      blockIndices,
+      modeMeta,
+      bW,
+      bH,
+      numAttrCols,
+      numAttrRows,
+      strategy,
+    };
+    state.quantizePass = {
+      bgIdx: 0,
+      bgErr: 0,
+      bestBg: 0,
+      bestBgErr: Infinity,
+      sampleOffset: 0,
+      sampleCols: Math.ceil(numAttrCols / 2),
+      sampleRows: Math.ceil(numAttrRows / 2),
+      blockOffset: 0,
+      counts: new Uint32Array(16),
+      topIds: new Int16Array(6),
+      topCounts: new Int32Array(6),
+      candidateColors: new Array(4),
+    };
+    pipelineStageQuantizeC64KoalaBackground(id);
+    return;
+  }
+  if (strategy === "global-prequantize") {
+    state.quantizeWork = {
+      resultLinear,
+      attrs: null,
+      blockColors,
+      blockIndices,
+      modeMeta,
+      bW,
+      bH,
+      numAttrCols,
+      numAttrRows,
+      strategy,
+    };
+    const sampleCols = Math.ceil(screenW / 4);
+    const sampleRows = Math.ceil(screenH / 4);
+    const sampleCount = sampleCols * sampleRows;
+    const K = modeCfg.colorsPerBlock;
+    state.quantizePass = {
+      pal: palettes[0],
+      K,
+      sampleCols,
+      sampleRows,
+      sampleCount,
+      samples: new Float32Array(sampleCount * 3),
+      sampleOffset: 0,
+      centroids: new Float32Array(K * 3),
+      centroidCount: 0,
+      dists: new Float64Array(sampleCount),
+      seedOffset: 0,
+      seedSum: 0,
+      iter: 0,
+      assignOffset: 0,
+      sums: new Float64Array(K * 4),
+    };
+    pipelineStageQuantizeGlobalSamples(id);
+    return;
+  }
+  if (strategy === "pixel-direct") {
+    let fullPal;
+    if (mode === "atari-gr9") {
+      fullPal = srgbToLinearPalette(atariLumaPalette(state.atariHue));
+      modeMeta.gr9Hue = state.atariHue;
+    } else {
+      fullPal = palettes[0];
+    }
+    const colorMasks = state.colorMasks;
+    // Filter out disabled colors (but always keep at least 1 entry so we
+    // have something to dither to).
+    const enabledIndices = [];
+    const enabledPal = [];
+    for (let i = 0; i < fullPal.length; i++) {
+      if (isPipelineColorEnabled(colorMasks, 0, i)) {
+        enabledIndices.push(i);
+        enabledPal.push(fullPal[i]);
+      }
+    }
+    if (enabledPal.length === 0) { enabledPal.push(fullPal[0]); enabledIndices.push(0); }
+    // One logical block that covers everything
+    numAttrCols = 1; numAttrRows = 1;
+    bW = screenW; bH = screenH;
+    blockColors = [[enabledPal]];
+    blockIndices = [[enabledIndices]];
+    attrs = null;
+  } else if (strategy === "user-picked") {
+    if (mode === "hires") {
+      // TS 2068 64-col hi-res has 8 fixed hardware ink/paper combinations;
+      // paper is always the RGB complement (xor 7) of ink. BRIGHT and FLASH
+      // are fixed at 0 in hardware.
+      const inkIdx = state.hiresPair;
+      const paperIdx = inkIdx ^ 7;
+      const bright = 0;
+      const pal = palettes[bright];
+      numAttrCols = 1; numAttrRows = 1;
+      bW = screenW; bH = screenH;
+      blockColors = [[[pal[inkIdx], pal[paperIdx]]]];
+      blockIndices = [[[inkIdx, paperIdx]]];
+      attrs = new Uint8Array([(bright << 6) | (paperIdx << 3) | inkIdx]);
+    } else if (mode === "atari-gr8") {
+      const fgHue = Math.max(0, Math.min(15, state.atariGr8FgHue | 0));
+      const fgLuma = Math.max(0, Math.min(7, state.atariGr8FgLuma | 0));
+      const bgHue = Math.max(0, Math.min(15, state.atariGr8BgHue | 0));
+      const bgLuma = Math.max(0, Math.min(7, state.atariGr8BgLuma | 0));
+      const fgIdx = fgHue * 8 + fgLuma;
+      const bgIdx = bgHue * 8 + bgLuma;
+      const pal = palettes[0];
+      numAttrCols = 1; numAttrRows = 1;
+      bW = screenW; bH = screenH;
+      blockColors = [[[pal[fgIdx], pal[bgIdx]]]];
+      blockIndices = [[[fgIdx, bgIdx]]];
+      modeMeta.atariFg = fgIdx;
+      modeMeta.atariBg = bgIdx;
+      attrs = null;
+    }
+  }
+
+  state.quantizeWork = {
+    resultLinear,
+    attrs,
+    blockColors,
+    blockIndices,
+    modeMeta,
+    bW,
+    bH,
+    numAttrCols,
+    numAttrRows,
+    strategy,
+  };
+  pipelineStageDitherQuantizedBlocks(id);
+}
+
+// Stage 3a: choose ink/paper colors for ZX Spectrum/Timex attribute blocks in chunks.
+function pipelineStageQuantizeZXExhaustiveBlocks(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "quantize-zx-exhaustive-blocks";
+  const q = state.quantizeWork;
+  const pass = state.quantizePass;
+  if (!q || !pass || !q.attrs) {
+    pipelineFail(id, new Error("Missing ZX exhaustive quantize state"), "Unable to quantize image blocks.");
+    return;
+  }
+  try {
+    const mode = state.mode;
+    const screenW = state.screenWidth;
+    const palettes = state.palettes;
+    const ditherMode = state.ditherMode;
+    const colorStrategy = state.colorStrategy;
+    const colorMasks = state.colorMasks;
+    const blockWork = state.blockWork;
+    const bW = q.bW;
+    const bH = q.bH;
+    const numAttrCols = q.numAttrCols;
+    const numAttrRows = q.numAttrRows;
+    const blockColors = q.blockColors;
+    const blockIndices = q.blockIndices;
+    const attrs = q.attrs;
+    const colorCounts = pass.colorCounts;
+    const isThreshold = isThresholdDither(ditherMode);
+    const total = numAttrCols * numAttrRows;
+    const deadline = pipelineWorkDeadline();
+    while (pass.offset < total) {
+      const end = Math.min(total, pass.offset + QUANTIZE_BLOCK_CHUNK);
+      for (let cell = pass.offset; cell < end; cell++) {
+      const by = (cell / numAttrCols) | 0;
+      const bx = cell - by * numAttrCols;
+      colorCounts[0].fill(0);
+      colorCounts[1].fill(0);
+      const blockX = bx * bW, blockY = by * bH;
+      let bestInk = 0, bestPaper = 0, bestBright = 0, bestError = Infinity;
+
+      let lumaMin = Infinity, lumaMax = -Infinity;
+      for (let py = 0; py < bH; py++) {
+        for (let px = 0; px < bW; px++) {
+          const i = ((blockY + py) * screenW + (blockX + px)) * 3;
+          const r = blockWork[i + 0];
+          const g = blockWork[i + 1];
+          const b = blockWork[i + 2];
+          const luma = r * 0.2126 + g * 0.7152 + b * 0.0722;
+          lumaMin = Math.min(luma, lumaMin);
+          lumaMax = Math.max(luma, lumaMax);
+        }
+      }
+      const requireDistinct = isThreshold && (lumaMax - lumaMin) > 0.06;
+
+      if (colorStrategy === "per-block") {
+        const cols = [0, 0];
+        for (let bright = 0; bright <= 1; bright++) {
+          const pal = palettes[bright];
+          for (let ink = 0; ink < 8; ink++) {
+            if (isPipelineColorEnabled(colorMasks, bright, ink)) {
+              const paperStart = requireDistinct ? ink + 1 : ink;
+              for (let paper = paperStart; paper < 8; paper++) {
+                if (isPipelineColorEnabled(colorMasks, bright, paper)) {
+                  cols[0] = pal[ink];
+                  cols[1] = pal[paper];
+                  const err = evaluateBlock(blockWork, screenW, blockX, blockY, bW, bH, cols, ditherMode);
                   if (err < bestError) {
                     bestError = err;
-                    bestBright = topBright;
-                    bestPaper = topColorIndex;
-                    bestInk = colorIndex;
+                    bestInk = ink;
+                    bestPaper = paper;
+                    bestBright = bright;
                   }
                 }
               }
-              // No pair found, use the top color.
-              if (!Number.isFinite(bestError)) {
-                bestBright = topBright;
-                bestPaper = topColorIndex;
-                bestInk = topColorIndex;
-              }
-            }
-          } // colorStrategy
-          const pal = palettes[bestBright];
-          blockColors[by][bx] = [pal[bestInk], pal[bestPaper]];
-          blockIndices[by][bx] = [bestInk, bestPaper];
-          attrs[by * numAttrCols + bx] = (bestBright << 6) | (bestPaper << 3) | bestInk;
-        } // next x
-      } // next y
-    } else if (strategy === "exhaustive" && (currentMode === "c64-hires-ntsc" || currentMode === "c64-hires-pal")) {
-      const pal = palettes[0];
-      const colorMask = colorMasks[0];
-      attrs = new Uint8Array(numAttrCols * numAttrRows); // screen RAM
-      for (let by = 0; by < numAttrRows; by++) {
-        for (let bx = 0; bx < numAttrCols; bx++) {
-          const blockX = bx * bW, blockY = by * bH;
-          let bestA = 0, bestB = 1, bestError = Infinity;
-          if (colorStrategy === "weighted-average") {
-            const result = [0, 0];
-            getBestWeightedColorPair(result, blockWork, blockX, blockY, bW, bH, pal, colorMask);
-            bestA = result[0];
-            bestB = result[1];
-          } else {
-            // Gosper's hack enumerates every 2-bit mask inside a 16-bit palette mask.
-            // Pros: no recursion, no temporary pair arrays, and each step jumps directly
-            // to the next pair. Cons: it is less obvious than nested loops and depends on
-            // 32-bit Number bitwise operations, so keep it local to this fixed 16-color
-            // exhaustive search.
-            let mask = 0b11;
-            const limit = 1 << 16;
-            while (mask < limit) {
-              const lowBit = mask & -mask;
-              const colorA = Math.trunc(Math.log2(lowBit));
-              const colorB = Math.trunc(Math.log2(mask ^ lowBit));
-              if (!isColorDisabled(currentMode, 0, colorA) && !isColorDisabled(currentMode, 0, colorB)) {
-                const colors = [pal[colorA], pal[colorB]];
-                const err = evaluateBlock(blockWork, blockX, blockY, bW, bH, colors, ditherMode);
-                if (err < bestError) { bestError = err; bestA = colorA; bestB = colorB; }
-              }
-
-              const next = mask + lowBit;
-              mask = (((next ^ mask) >>> 2) / lowBit) | next;
-            }
-          }
-          blockColors[by][bx] = [pal[bestA], pal[bestB]];
-          blockIndices[by][bx] = [bestA, bestB];
-          // Screen RAM: high nibble = fg (matches bit=1), low nibble = bg
-          attrs[by * numAttrCols + bx] = ((bestA & 0x0F) << 4) | (bestB & 0x0F);
-        }
-      }
-    } else if (strategy === "exhaustive" && (currentMode === "c64-koala-ntsc" || currentMode === "c64-koala-pal")) {
-      const pal = palettes[0];
-      // Phase 1: auto-pick shared background.
-      // For speed, sample a stride of blocks with a nearest-color error proxy.
-      let bestBg = 0, bestBgErr = Infinity;
-      for (let bgIdx = 0; bgIdx < 16; bgIdx++) {
-        let totalErr = 0;
-        for (let by = 0; by < numAttrRows; by += 2) {
-          for (let bx = 0; bx < numAttrCols; bx += 2) {
-            const blockX = bx * bW, blockY = by * bH;
-            const counts = new Uint32Array(16);
-            for (let py = 0; py < bH; py++) {
-              for (let px = 0; px < bW; px++) {
-                const idx = ((blockY + py) * screenWidth + (blockX + px)) * 3;
-                const r = Math.max(0, Math.min(1, blockWork[idx]));
-                const g = Math.max(0, Math.min(1, blockWork[idx+1]));
-                const b = Math.max(0, Math.min(1, blockWork[idx+2]));
-                counts[quantizeNearest(r, g, b, pal)]++;
-              }
-            }
-            const entries = [];
-            for (let i = 0; i < 16; i++) if (i !== bgIdx && counts[i] > 0) entries.push([i, counts[i]]);
-            entries.sort((a, b) => b[1] - a[1]);
-            const chosen = [bgIdx];
-            for (let i = 0; i < 3 && i < entries.length; i++) chosen.push(entries[i][0]);
-            while (chosen.length < 4) chosen.push(bgIdx);
-            const colors = chosen.map(i => pal[i]);
-            for (let py = 0; py < bH; py++) {
-              for (let px = 0; px < bW; px++) {
-                const idx = ((blockY + py) * screenWidth + (blockX + px)) * 3;
-                const r = Math.max(0, Math.min(1, blockWork[idx]));
-                const g = Math.max(0, Math.min(1, blockWork[idx+1]));
-                const b = Math.max(0, Math.min(1, blockWork[idx+2]));
-                const ci = quantizeNearest(r, g, b, colors);
-                totalErr += colorDist([r, g, b], colors[ci]);
-              }
             }
           }
         }
-        if (totalErr < bestBgErr) { bestBgErr = totalErr; bestBg = bgIdx; }
-      }
-      modeMeta.c64Bg = bestBg;
-
-      // Phase 2: per-block choose 3 non-bg colors
-      for (let by = 0; by < numAttrRows; by++) {
-        for (let bx = 0; bx < numAttrCols; bx++) {
-          const blockX = bx * bW, blockY = by * bH;
-          const counts = new Uint32Array(16);
-          for (let py = 0; py < bH; py++) {
-            for (let px = 0; px < bW; px++) {
-              const idx = ((blockY + py) * screenWidth + (blockX + px)) * 3;
-              const r = Math.max(0, Math.min(1, blockWork[idx]));
-              const g = Math.max(0, Math.min(1, blockWork[idx+1]));
-              const b = Math.max(0, Math.min(1, blockWork[idx+2]));
-              counts[quantizeNearest(r, g, b, pal)]++;
-            }
-          }
-          const entries = [];
-          for (let i = 0; i < 16; i++) if (i !== bestBg) entries.push([i, counts[i]]);
-          entries.sort((a, b) => b[1] - a[1]);
-          const top = entries.slice(0, 6).map(e => e[0]);
-          while (top.length < 3) {
-            for (let i = 0; i < 16; i++) if (i !== bestBg && !top.includes(i)) { top.push(i); if (top.length >= 3) break; }
-          }
-          let bestColors = [bestBg, top[0], top[1], top[2]];
-          let bestErr = Infinity;
-          for (let i = 0; i < top.length; i++) {
-            for (let j = i + 1; j < top.length; j++) {
-              for (let k = j + 1; k < top.length; k++) {
-                const ids = [bestBg, top[i], top[j], top[k]];
-                const colors = ids.map(x => pal[x]);
-                const err = evaluateBlock(blockWork, blockX, blockY, bW, bH, colors, ditherMode);
-                if (err < bestErr) { bestErr = err; bestColors = ids; }
-              }
-            }
-          }
-          blockColors[by][bx] = bestColors.map(i => pal[i]);
-          blockIndices[by][bx] = bestColors; // [bg, c01, c10, c11]
-        }
-      }
-      attrs = null;
-    } else if (strategy === "global-prequantize") {
-      // K-means++ over the blurred working pixels (stride 4 for speed).
-      // After convergence, map each centroid to its nearest palette color
-      // via quantizeNearest and dedupe. This replaces the old top-frequency
-      // nearest-bin approach — k-means fits the image's actual color
-      // distribution far better, especially for e.g. skies + skin tones.
-      const pal = palettes[0];
-      const K = modeCfg.colorsPerBlock;
-
-      // Sample pixels (stride 4)
-      const samples = [];
-      for (let y = 0; y < screenHeight; y += 4) {
-        for (let x = 0; x < screenWidth; x += 4) {
-          const idx = (y * screenWidth + x) * 3;
-          samples.push([
-            Math.max(0, Math.min(1, blockWork[idx])),
-            Math.max(0, Math.min(1, blockWork[idx+1])),
-            Math.max(0, Math.min(1, blockWork[idx+2])),
-          ]);
-        }
-      }
-
-      // K-means++ seeding
-      const centroids = [];
-      if (samples.length > 0) {
-        centroids.push(samples[(Math.random() * samples.length) | 0].slice());
-        const dists = new Float64Array(samples.length);
-        for (let c = 1; c < K; c++) {
-          let sum = 0;
-          for (let i = 0; i < samples.length; i++) {
-            let md = Infinity;
-            for (const cc of centroids) {
-              const d = colorDist(samples[i], cc);
-              if (d < md) md = d;
-            }
-            dists[i] = md;
-            sum += md;
-          }
-          let pick = Math.random() * sum;
-          let chosen = samples.length - 1;
-          for (let i = 0; i < samples.length; i++) {
-            pick -= dists[i];
-            if (pick <= 0) { chosen = i; break; }
-          }
-          centroids.push(samples[chosen].slice());
-        }
-      }
-      while (centroids.length < K) centroids.push([0, 0, 0]);
-
-      // Lloyd iterations
-      for (let iter = 0; iter < 15; iter++) {
-        const sums = Array.from({ length: K }, () => [0, 0, 0, 0]); // r,g,b,count
-        for (const p of samples) {
-          let bestK = 0, bestD = Infinity;
-          for (let k = 0; k < K; k++) {
-            const d = colorDist(p, centroids[k]);
-            if (d < bestD) { bestD = d; bestK = k; }
-          }
-          sums[bestK][0] += p[0];
-          sums[bestK][1] += p[1];
-          sums[bestK][2] += p[2];
-          sums[bestK][3] += 1;
-        }
-        let maxDelta = 0;
-        for (let k = 0; k < K; k++) {
-          if (sums[k][3] === 0) continue;
-          const nr = sums[k][0] / sums[k][3];
-          const ng = sums[k][1] / sums[k][3];
-          const nb = sums[k][2] / sums[k][3];
-          const dr = nr - centroids[k][0], dg = ng - centroids[k][1], db = nb - centroids[k][2];
-          const d = Math.sqrt(dr*dr + dg*dg + db*db);
-          if (d > maxDelta) maxDelta = d;
-          centroids[k][0] = nr; centroids[k][1] = ng; centroids[k][2] = nb;
-        }
-        if (maxDelta < (0.5 / 255)) break;
-      }
-
-      // Map centroids -> palette indices (dedupe, keep first occurrences)
-      const chosenIndices = [];
-      const seen = new Set();
-      for (const c of centroids) {
-        const pi = quantizeNearest(c[0], c[1], c[2], pal);
-        if (!seen.has(pi)) { seen.add(pi); chosenIndices.push(pi); }
-      }
-      // Top-up: if dedupe shrank the set, fill with nearest distinct
-      // palette colors to the abandoned centroids.
-      for (const c of centroids) {
-        if (chosenIndices.length >= K) break;
-        // Find nearest palette entry not yet chosen
-        let best = -1, bestD = Infinity;
-        for (let i = 0; i < pal.length; i++) {
-          if (seen.has(i)) continue;
-          const d = colorDist(c, pal[i]);
-          if (d < bestD) { bestD = d; best = i; }
-        }
-        if (best >= 0) { seen.add(best); chosenIndices.push(best); }
-      }
-      while (chosenIndices.length < K) chosenIndices.push(0);
-
-      const chosenRGB = chosenIndices.map(i => pal[i]);
-      blockColors[0][0] = chosenRGB;
-      blockIndices[0][0] = chosenIndices;
-      modeMeta.atariRegs = chosenIndices; // [bg, pf0, pf1, pf2]
-      attrs = null;
-    } else if (strategy === "pixel-direct") {
-      let fullPal;
-      let srgbFullPal = null;
-      if (currentMode === "atari-gr9") {
-        const hue = parseInt(UI.atariHue.value) || 0;
-        srgbFullPal = atariLumaPalette(hue);
-        fullPal = srgbToLinearPalette(srgbFullPal);
-        modeMeta.gr9Hue = hue;
-      } else {
-        fullPal = palettes[0];
-      }
-      // Filter out disabled colors (but always keep at least 1 entry so we
-      // have something to dither to).
-      const enabledIndices = [];
-      const enabledPal = [];
-      for (let i = 0; i < fullPal.length; i++) {
-        if (!isColorDisabled(currentMode, 0, i)) {
-          enabledIndices.push(i);
-          enabledPal.push(fullPal[i]);
-        }
-      }
-      if (enabledPal.length === 0) { enabledPal.push(fullPal[0]); enabledIndices.push(0); }
-      // One logical block that covers everything
-      numAttrCols = 1; numAttrRows = 1;
-      bW = screenWidth; bH = screenHeight;
-      blockColors = [[enabledPal]];
-      blockIndices = [[enabledIndices]];
-      attrs = null;
-    } else if (strategy === "user-picked") {
-      if (currentMode === "hires") {
-        // TS 2068 64-col hi-res has 8 fixed hardware ink/paper combinations;
-        // paper is always the RGB complement (xor 7) of ink. BRIGHT and FLASH
-        // are fixed at 0 in hardware.
-        const inkIdx = parseInt(UI.hiresPair.value);
-        const paperIdx = inkIdx ^ 7;
-        const bright = 0;
-        const pal = palettes[bright];
-        numAttrCols = 1; numAttrRows = 1;
-        bW = screenWidth; bH = screenHeight;
-        blockColors = [[[pal[inkIdx], pal[paperIdx]]]];
-        blockIndices = [[[inkIdx, paperIdx]]];
-        attrs = new Uint8Array([(bright << 6) | (paperIdx << 3) | inkIdx]);
-      } else if (currentMode === "atari-gr8") {
-        const inkIdx = parseInt(UI.inkColor.value);
-        const paperIdx = parseInt(UI.paperColor.value);
-        const bright = UI.hiresBright.checked ? 1 : 0;
-        // Map ink/paper 0-7 onto Atari hues; bright toggles fg luma.
-        const fgLuma = bright ? 7 : 6;
-        const bgLuma = 0;
-        const fgIdx = (inkIdx % 16) * 8 + fgLuma;
-        const bgIdx = (paperIdx % 16) * 8 + bgLuma;
-        const pal = palettes[0];
-        numAttrCols = 1; numAttrRows = 1;
-        bW = screenWidth; bH = screenHeight;
-        blockColors = [[[pal[fgIdx], pal[bgIdx]]]];
-        blockIndices = [[[fgIdx, bgIdx]]];
-        modeMeta.atariFg = fgIdx;
-        modeMeta.atariBg = bgIdx;
-        attrs = null;
-      }
-    }
-
-    // Global dither pass: errors propagate across block boundaries.
-    // Critical for ECM's 8×1 blocks, where per-block dithering would lose all
-    // vertical error flow.
-    applyGlobalDither(work, resultLinear, ditherMode, (x, y) => {
-      const bx = Math.min(numAttrCols - 1, Math.floor(x / bW));
-      const by = Math.min(numAttrRows - 1, Math.floor(y / bH));
-      return blockColors[by][bx];
-    }, { serpentine });
-
-    // --- Gauss-Seidel refinement pass ---
-    // After the initial WAPF+dither pass, measure per-block output error and
-    // re-run a small candidate search on blocks that are the worst offenders.
-    // Uses the initial choice as seed and only evaluates nearby candidates.
-    // Only applied to exhaustive standard/ecm modes where a block has two
-    // independent palette colors (not C64 auto-bg or global-prequant).
-    let gsUpgraded = 0, gsIters = 0;
-    if (
-      gaussSeidel &&
-      strategy === "exhaustive" &&
-      (currentMode === "standard" || currentMode === "ts-standard" || currentMode === "ecm") &&
-      attrs
-    ) {
-      // Compute per-block error for current output
-      const blockErr = new Float64Array(numAttrRows * numAttrCols);
-      const recomputeBlockErr = (by, bx) => {
-        let sum = 0;
-        const blockX = bx * bW, blockY = by * bH;
+      } else if (colorStrategy === "pca") {
+        let mr = 0, mg = 0, mb = 0, n = 0;
         for (let py = 0; py < bH; py++) {
           for (let px = 0; px < bW; px++) {
-            const idx = ((blockY + py) * screenWidth + (blockX + px)) * 3;
-            const dr = work[idx]   - resultLinear[idx];
-            const dg = work[idx+1] - resultLinear[idx+1];
-            const db = work[idx+2] - resultLinear[idx+2];
-            sum += 3*dr*dr + 4*dg*dg + 2*db*db;
+            const idx = ((blockY + py) * screenW + (blockX + px)) * 3;
+            mr += blockWork[idx]; mg += blockWork[idx+1]; mb += blockWork[idx+2];
+            n++;
           }
         }
-        blockErr[by * numAttrCols + bx] = sum;
-      };
-      for (let by = 0; by < numAttrRows; by++) {
-        for (let bx = 0; bx < numAttrCols; bx++) recomputeBlockErr(by, bx);
-      }
-      // Threshold: top-quartile by error (block is "hard")
-      const sorted = Array.from(blockErr).sort((a,b) => a - b);
-      const threshold = sorted[Math.floor(sorted.length * 0.75)] ?? 0;
-
-      for (let iter = 0; iter < 3; iter++) {
-        let changed = 0;
-        for (let by = 0; by < numAttrRows; by++) {
-          for (let bx = 0; bx < numAttrCols; bx++) {
-            if (blockErr[by * numAttrCols + bx] <= threshold) continue;
-            const blockX = bx * bW, blockY = by * bH;
-            // Candidate pool: existing pair + its "neighbors" (other single-
-            // palette swaps against the 8 colors in each palette).
-            const [curInk, curPaper] = blockIndices[by][bx];
-            const curAttr = attrs[by * numAttrCols + bx];
-            const curBright = (curAttr >> 6) & 1;
-            let bestErr = evaluateBlock(blockWork, blockX, blockY, bW, bH,
-              [palettes[curBright][curInk], palettes[curBright][curPaper]], ditherMode);
-            let bestInk = curInk, bestPaper = curPaper, bestBright = curBright;
-            const cands = [];
-            // Vary one side at a time, within same bright
-            for (let c = 0; c < 8; c++) {
-              if (c !== curPaper) cands.push([curBright, c, curPaper]);
-              if (c !== curInk) cands.push([curBright, curInk, c]);
+        mr /= n; mg /= n; mb /= n;
+        let c00=0, c01=0, c02=0, c11=0, c12=0, c22=0;
+        for (let py = 0; py < bH; py++) {
+          for (let px = 0; px < bW; px++) {
+            const idx = ((blockY + py) * screenW + (blockX + px)) * 3;
+            const dr = blockWork[idx] - mr;
+            const dg = blockWork[idx+1] - mg;
+            const db = blockWork[idx+2] - mb;
+            c00 += dr*dr; c01 += dr*dg; c02 += dr*db;
+            c11 += dg*dg; c12 += dg*db; c22 += db*db;
+          }
+        }
+        let vx = 1, vy = 1, vz = 1;
+        for (let it = 0; it < 10; it++) {
+          const nx = c00*vx + c01*vy + c02*vz;
+          const ny = c01*vx + c11*vy + c12*vz;
+          const nz = c02*vx + c12*vy + c22*vz;
+          const mag = Math.sqrt(nx*nx + ny*ny + nz*nz) || 1;
+          vx = nx / mag; vy = ny / mag; vz = nz / mag;
+        }
+        let tmin = Infinity, tmax = -Infinity;
+        let minR=0, minG=0, minB=0, maxR=0, maxG=0, maxB=0;
+        for (let py = 0; py < bH; py++) {
+          for (let px = 0; px < bW; px++) {
+            const idx = ((blockY + py) * screenW + (blockX + px)) * 3;
+            const dr = blockWork[idx+0] - mr;
+            const dg = blockWork[idx+1] - mg;
+            const db = blockWork[idx+2] - mb;
+            const t = dr*vx + dg*vy + db*vz;
+            if (t < tmin) {
+              tmin = t; minR = blockWork[idx]; minG = blockWork[idx+1]; minB = blockWork[idx+2];
             }
-            // Also try flipping bright
-            for (let c = 0; c < 8; c++) cands.push([curBright ^ 1, c, curPaper]);
-            for (const [tb, ti, tp] of cands) {
-              if (isColorDisabled(currentMode, tb, ti) || isColorDisabled(currentMode, tb, tp)) continue;
-              const pal = palettes[tb];
-              const err = evaluateBlock(blockWork, blockX, blockY, bW, bH, [pal[ti], pal[tp]], ditherMode);
-              if (err < bestErr) { bestErr = err; bestInk = ti; bestPaper = tp; bestBright = tb; }
-            }
-            if (bestInk !== curInk || bestPaper !== curPaper || bestBright !== curBright) {
-              const pal = palettes[bestBright];
-              blockColors[by][bx] = [pal[bestInk], pal[bestPaper]];
-              blockIndices[by][bx] = [bestInk, bestPaper];
-              attrs[by * numAttrCols + bx] = (bestBright << 6) | (bestPaper << 3) | bestInk;
-              changed++;
+            if (t > tmax) {
+              tmax = t; maxR = blockWork[idx]; maxG = blockWork[idx+1]; maxB = blockWork[idx+2];
             }
           }
         }
-        gsIters = iter + 1;
-        if (changed === 0) break;
-        gsUpgraded += changed;
-        // Re-run global dither with updated colors
-        applyGlobalDither(work, resultLinear, ditherMode, (x, y) => {
-          const bx = Math.min(numAttrCols - 1, Math.floor(x / bW));
-          const by = Math.min(numAttrRows - 1, Math.floor(y / bH));
-          return blockColors[by][bx];
-        }, { serpentine });
-        // Recompute per-block error for next iteration
-        for (let by = 0; by < numAttrRows; by++) {
-          for (let bx = 0; bx < numAttrCols; bx++) recomputeBlockErr(by, bx);
+        for (let bright = 0; bright <= 1; bright++) {
+          const pal = palettes[bright];
+          let lowIdx = 0, lowD = Infinity, hiIdx = 0, hiD = Infinity;
+          for (let i = 0; i < 8; i++) {
+            if (!isPipelineColorEnabled(colorMasks, bright, i)) continue;
+            const color = pal[i];
+            const d0 = colorDistValues(minR, minG, minB, color[0], color[1], color[2]);
+            if (d0 < lowD) { lowD = d0; lowIdx = i; }
+            const d1 = colorDistValues(maxR, maxG, maxB, color[0], color[1], color[2]);
+            if (d1 < hiD) { hiD = d1; hiIdx = i; }
+          }
+          if (requireDistinct && lowIdx === hiIdx) continue;
+          const err = evaluateBlock(blockWork, screenW, blockX, blockY, bW, bH, [pal[lowIdx], pal[hiIdx]], ditherMode);
+          if (err < bestError) {
+            bestError = err; bestInk = lowIdx; bestPaper = hiIdx; bestBright = bright;
+          }
+        }
+      } else if (colorStrategy === "weighted-average") {
+        const result = [0, 0];
+        for (let bright = 0; bright <= 1; bright++) {
+          const pal = palettes[bright];
+          const colorMask = colorMasks[bright];
+          const err = getBestWeightedColorPair(result, blockWork, screenW, blockX, blockY, bW, bH, pal, colorMask);
+          if (err < bestError) {
+            bestError = err;
+            bestPaper = result[0];
+            bestInk = result[1];
+            bestBright = bright;
+          }
+        }
+      } else {
+        for (let py = 0; py < bH; py++) {
+          for (let px = 0; px < bW; px++) {
+            const i = ((blockY + py) * screenW + (blockX + px)) * 3;
+            const r = blockWork[i + 0];
+            const g = blockWork[i + 1];
+            const b = blockWork[i + 2];
+            colorCounts[0][quantizeNearest(r, g, b, palettes[0])]++;
+            colorCounts[1][quantizeNearest(r, g, b, palettes[1])]++;
+          }
+        }
+        let topColorIndex = -1;
+        let topBright = 0;
+        for (let bright = 0; bright <= 1; bright++) {
+          const colorMask = colorMasks[bright];
+          const counts = colorCounts[bright];
+          for (let i = 0; i < 8; i++) {
+            if (colorMask[i] && (topColorIndex < 0 || counts[i] > counts[topColorIndex])) {
+              topColorIndex = i;
+              topBright = bright;
+            }
+          }
+        }
+        if (topColorIndex >= 0) {
+          const pal = palettes[topBright];
+          const colorMask = colorMasks[topBright];
+          for (let colorIndex = 0; colorIndex < 8; colorIndex++) {
+            if (colorMask[colorIndex] && colorIndex !== topColorIndex) {
+              const err = evaluateBlock(blockWork, screenW, blockX, blockY, bW, bH, [pal[topColorIndex], pal[colorIndex]], ditherMode);
+              if (err < bestError) {
+                bestError = err;
+                bestBright = topBright;
+                bestPaper = topColorIndex;
+                bestInk = colorIndex;
+              }
+            }
+          }
+          if (!Number.isFinite(bestError)) {
+            bestBright = topBright;
+            bestPaper = topColorIndex;
+            bestInk = topColorIndex;
+          }
         }
       }
-      modeMeta.gsIters = gsIters;
-      modeMeta.gsUpgraded = gsUpgraded;
+      const pal = palettes[bestBright];
+      blockColors[by][bx] = [pal[bestInk], pal[bestPaper]];
+      blockIndices[by][bx] = [bestInk, bestPaper];
+      attrs[by * numAttrCols + bx] = (bestBright << 6) | (bestPaper << 3) | bestInk;
+      }
+      pass.offset = end;
+      if (pipelineShouldYield(deadline)) break;
     }
+    if (pass.offset < total) {
+      pipelineSchedule(pipelineStageQuantizeZXExhaustiveBlocks, id);
+      return;
+    }
+    state.quantizePass = null;
+    pipelineStageDitherQuantizedBlocks(id);
+  } catch (err) {
+    pipelineFail(id, err, "Unable to quantize image blocks.");
+  }
+}
 
-    // Convert result pixels back to sRGB for display and image export.
-    // Binary exporters reconstruct their palette RGB data lazily from compact
-    // palette indices in buildBinaryExportData().
-    const resultPixels = new Uint8Array(resultLinear.length);
-    for (let i = 0; i < resultPixels.length; i++) {
+// Stage 3b: choose C64 hi-res character colors in chunks.
+function pipelineStageQuantizeC64HiresBlocks(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "quantize-c64-hires-blocks";
+  const q = state.quantizeWork;
+  const pass = state.quantizePass;
+  if (!q || !pass || !q.attrs) {
+    pipelineFail(id, new Error("Missing C64 hi-res quantize state"), "Unable to quantize C64 blocks.");
+    return;
+  }
+  try {
+    const screenW = state.screenWidth;
+    const pal = state.palettes[0];
+    const colorMasks = state.colorMasks;
+    const colorMask = colorMasks[0];
+    const blockWork = state.blockWork;
+    const ditherMode = state.ditherMode;
+    const colorStrategy = state.colorStrategy;
+    const bW = q.bW;
+    const bH = q.bH;
+    const numAttrCols = q.numAttrCols;
+    const numAttrRows = q.numAttrRows;
+    const total = numAttrCols * numAttrRows;
+    const deadline = pipelineWorkDeadline();
+    while (pass.offset < total) {
+      const end = Math.min(total, pass.offset + QUANTIZE_BLOCK_CHUNK);
+      for (let cell = pass.offset; cell < end; cell++) {
+        const by = (cell / numAttrCols) | 0;
+        const bx = cell - by * numAttrCols;
+        const blockX = bx * bW, blockY = by * bH;
+        let bestA = 0, bestB = 1, bestError = Infinity;
+        if (colorStrategy === "weighted-average") {
+          const result = [0, 0];
+          getBestWeightedColorPair(result, blockWork, screenW, blockX, blockY, bW, bH, pal, colorMask);
+          bestA = result[0];
+          bestB = result[1];
+        } else {
+          // Gosper's hack enumerates every 2-bit mask inside a 16-bit palette mask.
+          // Pros: no recursion, no temporary pair arrays, and each step jumps directly
+          // to the next pair. Cons: it is less obvious than nested loops and depends on
+          // 32-bit Number bitwise operations, so keep it local to this fixed 16-color
+          // exhaustive search.
+          let mask = 0b11;
+          const limit = 1 << 16;
+          while (mask < limit) {
+            const lowBit = mask & -mask;
+            const colorA = Math.trunc(Math.log2(lowBit));
+            const colorB = Math.trunc(Math.log2(mask ^ lowBit));
+            if (isPipelineColorEnabled(colorMasks, 0, colorA) && isPipelineColorEnabled(colorMasks, 0, colorB)) {
+              const colors = [pal[colorA], pal[colorB]];
+              const err = evaluateBlock(blockWork, screenW, blockX, blockY, bW, bH, colors, ditherMode);
+              if (err < bestError) { bestError = err; bestA = colorA; bestB = colorB; }
+            }
+
+            const next = mask + lowBit;
+            mask = (((next ^ mask) >>> 2) / lowBit) | next;
+          }
+        }
+        q.blockColors[by][bx] = [pal[bestA], pal[bestB]];
+        q.blockIndices[by][bx] = [bestA, bestB];
+        q.attrs[by * numAttrCols + bx] = ((bestA & 0x0F) << 4) | (bestB & 0x0F);
+      }
+      pass.offset = end;
+      if (pipelineShouldYield(deadline)) break;
+    }
+    if (pass.offset < total) {
+      pipelineSchedule(pipelineStageQuantizeC64HiresBlocks, id);
+      return;
+    }
+    state.quantizePass = null;
+    pipelineStageDitherQuantizedBlocks(id);
+  } catch (err) {
+    pipelineFail(id, err, "Unable to quantize C64 blocks.");
+  }
+}
+
+// Stage 3c: choose the shared C64 Koala background over sampled blocks.
+function pipelineStageQuantizeC64KoalaBackground(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "quantize-c64-koala-background";
+  const q = state.quantizeWork;
+  const pass = state.quantizePass;
+  if (!q || !pass) {
+    pipelineFail(id, new Error("Missing C64 Koala background state"), "Unable to quantize C64 Koala background.");
+    return;
+  }
+  try {
+    const screenW = state.screenWidth;
+    const pal = state.palettes[0];
+    const blockWork = state.blockWork;
+    const bW = q.bW;
+    const bH = q.bH;
+    const totalSamples = pass.sampleCols * pass.sampleRows;
+    const deadline = pipelineWorkDeadline();
+    while (pass.bgIdx < 16) {
+      const end = Math.min(totalSamples, pass.sampleOffset + QUANTIZE_BLOCK_CHUNK);
+      for (let sample = pass.sampleOffset; sample < end; sample++) {
+        const by = ((sample / pass.sampleCols) | 0) * 2;
+        const bx = (sample % pass.sampleCols) * 2;
+        const blockX = bx * bW, blockY = by * bH;
+        pass.counts.fill(0);
+        for (let py = 0; py < bH; py++) {
+          for (let px = 0; px < bW; px++) {
+            const idx = ((blockY + py) * screenW + (blockX + px)) * 3;
+            const r = Math.max(0, Math.min(1, blockWork[idx]));
+            const g = Math.max(0, Math.min(1, blockWork[idx+1]));
+            const b = Math.max(0, Math.min(1, blockWork[idx+2]));
+            pass.counts[quantizeNearest(r, g, b, pal)]++;
+          }
+        }
+        pass.topIds[0] = pass.bgIdx; pass.topIds[1] = pass.bgIdx; pass.topIds[2] = pass.bgIdx;
+        pass.topCounts[0] = 0; pass.topCounts[1] = 0; pass.topCounts[2] = 0;
+        for (let i = 0; i < 16; i++) {
+          if (i === pass.bgIdx || pass.counts[i] === 0) continue;
+          const count = pass.counts[i];
+          for (let pos = 0; pos < 3; pos++) {
+            if (count > pass.topCounts[pos]) {
+              for (let shift = 2; shift > pos; shift--) {
+                pass.topCounts[shift] = pass.topCounts[shift - 1];
+                pass.topIds[shift] = pass.topIds[shift - 1];
+              }
+              pass.topCounts[pos] = count;
+              pass.topIds[pos] = i;
+              break;
+            }
+          }
+        }
+        const colors = pass.candidateColors;
+        colors[0] = pal[pass.bgIdx];
+        colors[1] = pal[pass.topIds[0]];
+        colors[2] = pal[pass.topIds[1]];
+        colors[3] = pal[pass.topIds[2]];
+        for (let py = 0; py < bH; py++) {
+          for (let px = 0; px < bW; px++) {
+            const idx = ((blockY + py) * screenW + (blockX + px)) * 3;
+            const r = Math.max(0, Math.min(1, blockWork[idx]));
+            const g = Math.max(0, Math.min(1, blockWork[idx+1]));
+            const b = Math.max(0, Math.min(1, blockWork[idx+2]));
+            const ci = quantizeNearest(r, g, b, colors);
+            const chosen = colors[ci];
+            pass.bgErr += colorDistValues(r, g, b, chosen[0], chosen[1], chosen[2]);
+          }
+        }
+      }
+      pass.sampleOffset = end;
+      if (pass.sampleOffset < totalSamples) {
+        if (pipelineShouldYield(deadline)) break;
+        continue;
+      }
+      if (pass.bgErr < pass.bestBgErr) {
+        pass.bestBgErr = pass.bgErr;
+        pass.bestBg = pass.bgIdx;
+      }
+      pass.bgIdx++;
+      if (pass.bgIdx < 16) {
+        pass.bgErr = 0;
+        pass.sampleOffset = 0;
+      }
+      if (pipelineShouldYield(deadline)) break;
+    }
+    if (pass.bgIdx < 16) {
+      pipelineSchedule(pipelineStageQuantizeC64KoalaBackground, id);
+      return;
+    }
+    q.modeMeta.c64Bg = pass.bestBg;
+    pass.blockOffset = 0;
+    pipelineStageQuantizeC64KoalaBlocks(id);
+  } catch (err) {
+    pipelineFail(id, err, "Unable to quantize C64 Koala background.");
+  }
+}
+
+// Stage 3d: choose per-block C64 Koala colors once the shared background is known.
+function pipelineStageQuantizeC64KoalaBlocks(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "quantize-c64-koala-blocks";
+  const q = state.quantizeWork;
+  const pass = state.quantizePass;
+  if (!q || !pass) {
+    pipelineFail(id, new Error("Missing C64 Koala block state"), "Unable to quantize C64 Koala blocks.");
+    return;
+  }
+  try {
+    const screenW = state.screenWidth;
+    const pal = state.palettes[0];
+    const blockWork = state.blockWork;
+    const ditherMode = state.ditherMode;
+    const bW = q.bW;
+    const bH = q.bH;
+    const numAttrCols = q.numAttrCols;
+    const numAttrRows = q.numAttrRows;
+    const bestBg = pass.bestBg;
+    const total = numAttrCols * numAttrRows;
+    const deadline = pipelineWorkDeadline();
+    while (pass.blockOffset < total) {
+      const end = Math.min(total, pass.blockOffset + QUANTIZE_BLOCK_CHUNK);
+      for (let cell = pass.blockOffset; cell < end; cell++) {
+        const by = (cell / numAttrCols) | 0;
+        const bx = cell - by * numAttrCols;
+        const blockX = bx * bW, blockY = by * bH;
+        pass.counts.fill(0);
+        for (let py = 0; py < bH; py++) {
+          for (let px = 0; px < bW; px++) {
+            const idx = ((blockY + py) * screenW + (blockX + px)) * 3;
+            const r = Math.max(0, Math.min(1, blockWork[idx]));
+            const g = Math.max(0, Math.min(1, blockWork[idx+1]));
+            const b = Math.max(0, Math.min(1, blockWork[idx+2]));
+            pass.counts[quantizeNearest(r, g, b, pal)]++;
+          }
+        }
+        pass.topIds.fill(-1);
+        pass.topCounts.fill(-1);
+        for (let i = 0; i < 16; i++) {
+          if (i === bestBg) continue;
+          const count = pass.counts[i];
+          for (let pos = 0; pos < 6; pos++) {
+            if (count > pass.topCounts[pos]) {
+              for (let shift = 5; shift > pos; shift--) {
+                pass.topCounts[shift] = pass.topCounts[shift - 1];
+                pass.topIds[shift] = pass.topIds[shift - 1];
+              }
+              pass.topCounts[pos] = count;
+              pass.topIds[pos] = i;
+              break;
+            }
+          }
+        }
+        let best1 = pass.topIds[0], best2 = pass.topIds[1], best3 = pass.topIds[2];
+        let bestErr = Infinity;
+        const colors = pass.candidateColors;
+        colors[0] = pal[bestBg];
+        for (let i = 0; i < 6; i++) {
+          for (let j = i + 1; j < 6; j++) {
+            for (let k = j + 1; k < 6; k++) {
+              colors[1] = pal[pass.topIds[i]];
+              colors[2] = pal[pass.topIds[j]];
+              colors[3] = pal[pass.topIds[k]];
+              const err = evaluateBlock(blockWork, screenW, blockX, blockY, bW, bH, colors, ditherMode);
+              if (err < bestErr) {
+                bestErr = err;
+                best1 = pass.topIds[i];
+                best2 = pass.topIds[j];
+                best3 = pass.topIds[k];
+              }
+            }
+          }
+        }
+        q.blockColors[by][bx] = [pal[bestBg], pal[best1], pal[best2], pal[best3]];
+        q.blockIndices[by][bx] = [bestBg, best1, best2, best3];
+      }
+      pass.blockOffset = end;
+      if (pipelineShouldYield(deadline)) break;
+    }
+    if (pass.blockOffset < total) {
+      pipelineSchedule(pipelineStageQuantizeC64KoalaBlocks, id);
+      return;
+    }
+    state.quantizePass = null;
+    pipelineStageDitherQuantizedBlocks(id);
+  } catch (err) {
+    pipelineFail(id, err, "Unable to quantize C64 Koala blocks.");
+  }
+}
+
+// Stage 3e: collect stride-4 samples for global k-means prequantization.
+function pipelineStageQuantizeGlobalSamples(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "quantize-global-samples";
+  const pass = state.quantizePass;
+  if (!pass) {
+    pipelineFail(id, new Error("Missing global prequantize sample state"), "Unable to sample image colors.");
+    return;
+  }
+  try {
+    const blockWork = state.blockWork;
+    const width = state.screenWidth;
+    const deadline = pipelineWorkDeadline();
+    while (pass.sampleOffset < pass.sampleCount) {
+      const end = Math.min(pass.sampleCount, pass.sampleOffset + KMEANS_SAMPLE_CHUNK);
+      for (let sample = pass.sampleOffset; sample < end; sample++) {
+        const x = (sample % pass.sampleCols) * 4;
+        const y = ((sample / pass.sampleCols) | 0) * 4;
+        const src = (y * width + x) * 3;
+        const dst = sample * 3;
+        pass.samples[dst] = Math.max(0, Math.min(1, blockWork[src]));
+        pass.samples[dst + 1] = Math.max(0, Math.min(1, blockWork[src + 1]));
+        pass.samples[dst + 2] = Math.max(0, Math.min(1, blockWork[src + 2]));
+      }
+      pass.sampleOffset = end;
+      if (pipelineShouldYield(deadline)) break;
+    }
+    if (pass.sampleOffset < pass.sampleCount) {
+      pipelineSchedule(pipelineStageQuantizeGlobalSamples, id);
+      return;
+    }
+    pipelineStageQuantizeGlobalSeedInit(id);
+  } catch (err) {
+    pipelineFail(id, err, "Unable to sample image colors.");
+  }
+}
+
+// Stage 3f: start k-means++ seeding for global prequantization.
+function pipelineStageQuantizeGlobalSeedInit(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "quantize-global-seed-init";
+  const pass = state.quantizePass;
+  if (!pass) {
+    pipelineFail(id, new Error("Missing global prequantize seed state"), "Unable to seed image colors.");
+    return;
+  }
+  if (pass.sampleCount <= 0 || pass.K <= 0) {
+    pipelineStageQuantizeGlobalFinish(id);
+    return;
+  }
+  const chosen = (Math.random() * pass.sampleCount) | 0;
+  const src = chosen * 3;
+  pass.centroids[0] = pass.samples[src];
+  pass.centroids[1] = pass.samples[src + 1];
+  pass.centroids[2] = pass.samples[src + 2];
+  pass.centroidCount = 1;
+  if (pass.centroidCount >= pass.K) {
+    pipelineStageQuantizeGlobalLloydAssign(id);
+    return;
+  }
+  pass.seedOffset = 0;
+  pass.seedSum = 0;
+  pipelineStageQuantizeGlobalSeedDistances(id);
+}
+
+// Stage 3g: compute one k-means++ distance pass in chunks.
+function pipelineStageQuantizeGlobalSeedDistances(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "quantize-global-seed-distances";
+  const pass = state.quantizePass;
+  if (!pass) {
+    pipelineFail(id, new Error("Missing global prequantize seed distance state"), "Unable to seed image colors.");
+    return;
+  }
+  try {
+    const deadline = pipelineWorkDeadline();
+    while (pass.seedOffset < pass.sampleCount) {
+      const end = Math.min(pass.sampleCount, pass.seedOffset + KMEANS_SAMPLE_CHUNK);
+      for (let sample = pass.seedOffset; sample < end; sample++) {
+        const src = sample * 3;
+        const r = pass.samples[src];
+        const g = pass.samples[src + 1];
+        const b = pass.samples[src + 2];
+        let md = Infinity;
+        for (let c = 0; c < pass.centroidCount; c++) {
+          const ci = c * 3;
+          const d = colorDistValues(r, g, b, pass.centroids[ci], pass.centroids[ci + 1], pass.centroids[ci + 2]);
+          if (d < md) md = d;
+        }
+        pass.dists[sample] = md;
+        pass.seedSum += md;
+      }
+      pass.seedOffset = end;
+      if (pipelineShouldYield(deadline)) break;
+    }
+    if (pass.seedOffset < pass.sampleCount) {
+      pipelineSchedule(pipelineStageQuantizeGlobalSeedDistances, id);
+      return;
+    }
+    pipelineStageQuantizeGlobalSeedChoose(id);
+  } catch (err) {
+    pipelineFail(id, err, "Unable to seed image colors.");
+  }
+}
+
+// Stage 3h: choose the next k-means++ centroid after distances are ready.
+function pipelineStageQuantizeGlobalSeedChoose(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "quantize-global-seed-choose";
+  const pass = state.quantizePass;
+  if (!pass) {
+    pipelineFail(id, new Error("Missing global prequantize seed choice state"), "Unable to seed image colors.");
+    return;
+  }
+  let pick = Math.random() * pass.seedSum;
+  let chosen = pass.sampleCount - 1;
+  for (let i = 0; i < pass.sampleCount; i++) {
+    pick -= pass.dists[i];
+    if (pick <= 0) { chosen = i; break; }
+  }
+  const src = chosen * 3;
+  const dst = pass.centroidCount * 3;
+  pass.centroids[dst] = pass.samples[src];
+  pass.centroids[dst + 1] = pass.samples[src + 1];
+  pass.centroids[dst + 2] = pass.samples[src + 2];
+  pass.centroidCount++;
+  if (pass.centroidCount < pass.K) {
+    pass.seedOffset = 0;
+    pass.seedSum = 0;
+    pipelineStageQuantizeGlobalSeedDistances(id);
+    return;
+  }
+  pass.iter = 0;
+  pass.assignOffset = 0;
+  pipelineStageQuantizeGlobalLloydAssign(id);
+}
+
+// Stage 3i: assign bounded sample chunks to their nearest global centroids.
+function pipelineStageQuantizeGlobalLloydAssign(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "quantize-global-lloyd-assign";
+  const pass = state.quantizePass;
+  if (!pass) {
+    pipelineFail(id, new Error("Missing global prequantize Lloyd state"), "Unable to fit global colors.");
+    return;
+  }
+  try {
+    if (pass.assignOffset === 0) pass.sums.fill(0);
+    const deadline = pipelineWorkDeadline();
+    while (pass.assignOffset < pass.sampleCount) {
+      const end = Math.min(pass.sampleCount, pass.assignOffset + KMEANS_SAMPLE_CHUNK);
+      for (let sample = pass.assignOffset; sample < end; sample++) {
+        const src = sample * 3;
+        const r = pass.samples[src];
+        const g = pass.samples[src + 1];
+        const b = pass.samples[src + 2];
+        let bestK = 0, bestD = Infinity;
+        for (let k = 0; k < pass.K; k++) {
+          const ci = k * 3;
+          const d = colorDistValues(r, g, b, pass.centroids[ci], pass.centroids[ci + 1], pass.centroids[ci + 2]);
+          if (d < bestD) { bestD = d; bestK = k; }
+        }
+        const si = bestK * 4;
+        pass.sums[si] += r;
+        pass.sums[si + 1] += g;
+        pass.sums[si + 2] += b;
+        pass.sums[si + 3] += 1;
+      }
+      pass.assignOffset = end;
+      if (pipelineShouldYield(deadline)) break;
+    }
+    if (pass.assignOffset < pass.sampleCount) {
+      pipelineSchedule(pipelineStageQuantizeGlobalLloydAssign, id);
+      return;
+    }
+    pipelineStageQuantizeGlobalLloydUpdate(id);
+  } catch (err) {
+    pipelineFail(id, err, "Unable to fit global colors.");
+  }
+}
+
+// Stage 3j: update global centroids and decide whether another Lloyd pass is needed.
+function pipelineStageQuantizeGlobalLloydUpdate(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "quantize-global-lloyd-update";
+  const pass = state.quantizePass;
+  if (!pass) {
+    pipelineFail(id, new Error("Missing global prequantize Lloyd update state"), "Unable to fit global colors.");
+    return;
+  }
+  let maxDelta = 0;
+  for (let k = 0; k < pass.K; k++) {
+    const si = k * 4;
+    if (pass.sums[si + 3] === 0) continue;
+    const nr = pass.sums[si] / pass.sums[si + 3];
+    const ng = pass.sums[si + 1] / pass.sums[si + 3];
+    const nb = pass.sums[si + 2] / pass.sums[si + 3];
+    const ci = k * 3;
+    const dr = nr - pass.centroids[ci], dg = ng - pass.centroids[ci + 1], db = nb - pass.centroids[ci + 2];
+    const d = Math.sqrt(dr*dr + dg*dg + db*db);
+    if (d > maxDelta) maxDelta = d;
+    pass.centroids[ci] = nr;
+    pass.centroids[ci + 1] = ng;
+    pass.centroids[ci + 2] = nb;
+  }
+  pass.iter++;
+  if (maxDelta < (0.5 / 255) || pass.iter >= 15) {
+    pipelineStageQuantizeGlobalFinish(id);
+    return;
+  }
+  pass.assignOffset = 0;
+  pipelineStageQuantizeGlobalLloydAssign(id);
+}
+
+// Stage 3k: map fitted centroids to palette registers and continue to dither.
+function pipelineStageQuantizeGlobalFinish(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "quantize-global-finish";
+  const q = state.quantizeWork;
+  const pass = state.quantizePass;
+  if (!q || !pass) {
+    pipelineFail(id, new Error("Missing global prequantize finish state"), "Unable to choose global colors.");
+    return;
+  }
+  const chosenIndices = [];
+  const seen = new Set();
+  for (let k = 0; k < pass.K; k++) {
+    const ci = k * 3;
+    const pi = quantizeNearest(pass.centroids[ci], pass.centroids[ci + 1], pass.centroids[ci + 2], pass.pal);
+    if (!seen.has(pi)) { seen.add(pi); chosenIndices.push(pi); }
+  }
+  for (let k = 0; k < pass.K; k++) {
+    if (chosenIndices.length >= pass.K) break;
+    const ci = k * 3;
+    let best = -1, bestD = Infinity;
+    for (let i = 0; i < pass.pal.length; i++) {
+      if (seen.has(i)) continue;
+      const c = pass.pal[i];
+      const d = colorDistValues(pass.centroids[ci], pass.centroids[ci + 1], pass.centroids[ci + 2], c[0], c[1], c[2]);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    if (best >= 0) { seen.add(best); chosenIndices.push(best); }
+  }
+  while (chosenIndices.length < pass.K) chosenIndices.push(0);
+  q.blockColors[0][0] = chosenIndices.map(i => pass.pal[i]);
+  q.blockIndices[0][0] = chosenIndices;
+  q.modeMeta.atariRegs = chosenIndices;
+  q.attrs = null;
+  state.quantizePass = null;
+  pipelineStageDitherQuantizedBlocks(id);
+}
+
+// Stage 4: start applying the selected dithering/refinement pass.
+function pipelineStageDitherQuantizedBlocks(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "dither";
+  pipelineSwitchTiming(state, "apply");
+  const mode = state.mode;
+  const screenW = state.screenWidth;
+  const screenH = state.screenHeight;
+  const blockWork = state.blockWork;
+  const q = state.quantizeWork;
+  if (!q) {
+    pipelineFail(id, new Error("Missing quantize state"), "Unable to dither conversion result.");
+    return;
+  }
+  const strategy = q.strategy;
+  if (strategy === "zx81-character") {
+    pipelineStartZX81CharacterPass(id, mode === "zx81-equalized", blockWork, screenW, screenH);
+    return;
+  }
+  pipelineStartDitherPass(id, "initial");
+}
+
+function pipelineStartZX81CharacterPass(id, equalized, blockWork, width, height) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  const q = state.quantizeWork;
+  if (!q || !blockWork || !q.resultLinear) {
+    pipelineFail(id, new Error("Missing ZX81 pass state"), "Unable to match ZX81 characters.");
+    return;
+  }
+  const cols = Math.round(width / 8);
+  const rows = Math.round(height / 8);
+  const chars = new Uint8Array(cols * rows);
+  q.modeMeta.zx81Chars = chars;
+  state.zx81Pass = {
+    work: blockWork,
+    result: q.resultLinear,
+    width,
+    height,
+    equalized,
+    cols,
+    rows,
+    chars,
+    offset: 0,
+    values: new Float32Array(64),
+    sourceFeatures: new Float32Array(85),
+    candidates: getZX81GlyphCandidates(),
+  };
+  pipelineStageZX81CharacterBlocks(id);
+}
+
+// Stage 4z: match a bounded number of ZX81 8x8 character cells.
+function pipelineStageZX81CharacterBlocks(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "zx81-character-blocks";
+  const pass = state.zx81Pass;
+  if (!pass) {
+    pipelineFail(id, new Error("Missing ZX81 pass state"), "Unable to match ZX81 characters.");
+    return;
+  }
+  try {
+    const total = pass.cols * pass.rows;
+    const deadline = pipelineWorkDeadline();
+    while (pass.offset < total) {
+      const end = Math.min(total, pass.offset + ZX81_CHARACTER_BLOCK_CHUNK);
+      for (let cell = pass.offset; cell < end; cell++) {
+        const cx = cell % pass.cols;
+        const cy = (cell / pass.cols) | 0;
+        const blockX = cx * 8;
+        const blockY = cy * 8;
+        fillZX81BlockValues(pass.work, pass.width, blockX, blockY, pass.values, pass.equalized);
+        fillZX81Features(pass.values, pass.sourceFeatures);
+
+        let best = pass.candidates[0];
+        let bestScore = Infinity;
+        for (let i = 0; i < pass.candidates.length; i++) {
+          const candidate = pass.candidates[i];
+          const score = scoreZX81Features(pass.sourceFeatures, candidate.features);
+          if (score < bestScore) {
+            bestScore = score;
+            best = candidate;
+          }
+        }
+        pass.chars[cell] = best.code;
+        paintZX81Glyph(pass.result, pass.width, blockX, blockY, best.rows);
+      }
+      pass.offset = end;
+      if (pipelineShouldYield(deadline)) break;
+    }
+    if (pass.offset < total) {
+      pipelineSchedule(pipelineStageZX81CharacterBlocks, id);
+      return;
+    }
+    state.zx81Pass = null;
+    pipelineStageCompleteDitherQuantizedBlocks(id);
+  } catch (err) {
+    pipelineFail(id, err, "Unable to match ZX81 characters.");
+  }
+}
+
+function pipelineStartDitherPass(id, reason) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  const q = state.quantizeWork;
+  if (!q || !state.work || !q.resultLinear) {
+    pipelineFail(id, new Error("Missing dither state"), "Unable to dither conversion result.");
+    return;
+  }
+  const ditherMode = state.ditherMode;
+  const kernel = DIFFUSION_KERNELS[ditherMode] || null;
+  state.ditherPass = {
+    reason,
+    work: state.work,
+    result: q.resultLinear,
+    width: state.screenWidth,
+    height: state.screenHeight,
+    ditherMode,
+    blockColors: q.blockColors,
+    bW: q.bW,
+    bH: q.bH,
+    numAttrCols: q.numAttrCols,
+    numAttrRows: q.numAttrRows,
+    serpentine: state.serpentine,
+    kernel,
+    y: 0,
+    copyOffset: 0,
+    k: 0,
+    temp: null,
+    order: null,
+  };
+  if (isThresholdDither(ditherMode)) {
+    pipelineStageDitherThresholdRows(id);
+    return;
+  }
+  if (ditherMode === "hilbert-fs" || kernel) {
+    state.ditherPass.temp = new Float64Array(state.work.length);
+    pipelineStageDitherCopyTemp(id);
+    return;
+  }
+  pipelineStageDitherNearestRows(id);
+}
+
+// Stage 4a: threshold dithers are independent per pixel, so process rows directly.
+function pipelineStageDitherThresholdRows(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "dither-threshold-rows";
+  const pass = state.ditherPass;
+  if (!pass) {
+    pipelineFail(id, new Error("Missing dither pass"), "Unable to dither conversion result.");
+    return;
+  }
+  try {
+    const deadline = pipelineWorkDeadline();
+    while (pass.y < pass.height) {
+      const yEnd = Math.min(pass.height, pass.y + DITHER_ROW_CHUNK);
+      for (let y = pass.y; y < yEnd; y++) {
+        for (let x = 0; x < pass.width; x++) {
+          const idx = (y * pass.width + x) * 3;
+          const r = Math.max(0, Math.min(1, pass.work[idx]));
+          const g = Math.max(0, Math.min(1, pass.work[idx+1]));
+          const b = Math.max(0, Math.min(1, pass.work[idx+2]));
+          const colors = getBlockDitherColors(pass.blockColors, x, y, pass.bW, pass.bH, pass.numAttrCols, pass.numAttrRows);
+          const threshold = getThreshold(pass.ditherMode, x, y);
+          let chosen;
+          if (colors.length === 2) {
+            const factor = blendFactor(r, g, b, colors[0], colors[1], pass.ditherMode);
+            chosen = factor > threshold ? colors[1] : colors[0];
+          } else {
+            chosen = yliluomaLiteChoose(r, g, b, colors, pass.ditherMode, threshold);
+          }
+          pass.result[idx] = chosen[0];
+          pass.result[idx + 1] = chosen[1];
+          pass.result[idx + 2] = chosen[2];
+        }
+      }
+      pass.y = yEnd;
+      if (pipelineShouldYield(deadline)) break;
+    }
+    if (pass.y < pass.height) {
+      pipelineSchedule(pipelineStageDitherThresholdRows, id);
+      return;
+    }
+    pipelineStageFinishDitherPass(id);
+  } catch (err) {
+    pipelineFail(id, err, "Unable to dither conversion result.");
+  }
+}
+
+// Stage 4b: copy source pixels for error-diffusion modes without one long loop.
+function pipelineStageDitherCopyTemp(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "dither-copy-temp";
+  const pass = state.ditherPass;
+  if (!pass || !pass.temp) {
+    pipelineFail(id, new Error("Missing dither temp buffer"), "Unable to dither conversion result.");
+    return;
+  }
+  try {
+    const deadline = pipelineWorkDeadline();
+    while (pass.copyOffset < pass.work.length) {
+      const end = Math.min(pass.work.length, pass.copyOffset + DITHER_COPY_COMPONENT_CHUNK);
+      for (let i = pass.copyOffset; i < end; i++) pass.temp[i] = pass.work[i];
+      pass.copyOffset = end;
+      if (pipelineShouldYield(deadline)) break;
+    }
+    if (pass.copyOffset < pass.work.length) {
+      pipelineSchedule(pipelineStageDitherCopyTemp, id);
+      return;
+    }
+    if (pass.ditherMode === "hilbert-fs") {
+      pass.order = hilbertOrder(pass.width, pass.height).order;
+      pass.k = 0;
+      pipelineStageDitherHilbertPixels(id);
+      return;
+    }
+    pass.y = 0;
+    pipelineStageDitherDiffusionRows(id);
+  } catch (err) {
+    pipelineFail(id, err, "Unable to dither conversion result.");
+  }
+}
+
+// Stage 4c: nearest-colour/no-dither rows do not need an error buffer.
+function pipelineStageDitherNearestRows(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "dither-nearest-rows";
+  const pass = state.ditherPass;
+  if (!pass) {
+    pipelineFail(id, new Error("Missing dither pass"), "Unable to dither conversion result.");
+    return;
+  }
+  try {
+    const deadline = pipelineWorkDeadline();
+    while (pass.y < pass.height) {
+      const yEnd = Math.min(pass.height, pass.y + DITHER_ROW_CHUNK);
+      for (let y = pass.y; y < yEnd; y++) {
+        for (let x = 0; x < pass.width; x++) {
+          const idx = (y * pass.width + x) * 3;
+          const r = Math.max(0, Math.min(1, pass.work[idx]));
+          const g = Math.max(0, Math.min(1, pass.work[idx+1]));
+          const b = Math.max(0, Math.min(1, pass.work[idx+2]));
+          const colors = getBlockDitherColors(pass.blockColors, x, y, pass.bW, pass.bH, pass.numAttrCols, pass.numAttrRows);
+          const chosen = colors[quantizeNearest(r, g, b, colors)];
+          pass.result[idx] = chosen[0];
+          pass.result[idx + 1] = chosen[1];
+          pass.result[idx + 2] = chosen[2];
+        }
+      }
+      pass.y = yEnd;
+      if (pipelineShouldYield(deadline)) break;
+    }
+    if (pass.y < pass.height) {
+      pipelineSchedule(pipelineStageDitherNearestRows, id);
+      return;
+    }
+    pipelineStageFinishDitherPass(id);
+  } catch (err) {
+    pipelineFail(id, err, "Unable to dither conversion result.");
+  }
+}
+
+// Stage 4d: process scanline error-diffusion rows sequentially in bounded groups.
+function pipelineStageDitherDiffusionRows(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "dither-diffusion-rows";
+  const pass = state.ditherPass;
+  if (!pass || !pass.temp || !pass.kernel) {
+    pipelineFail(id, new Error("Missing diffusion dither state"), "Unable to dither conversion result.");
+    return;
+  }
+  try {
+    const deadline = pipelineWorkDeadline();
+    while (pass.y < pass.height) {
+      const yEnd = Math.min(pass.height, pass.y + DITHER_ROW_CHUNK);
+      for (let y = pass.y; y < yEnd; y++) {
+        const rtl = pass.serpentine && (y & 1) === 1;
+        const xStart = rtl ? pass.width - 1 : 0;
+        const xEnd = rtl ? -1 : pass.width;
+        const xStep = rtl ? -1 : 1;
+        for (let x = xStart; x !== xEnd; x += xStep) {
+          const idx = (y * pass.width + x) * 3;
+          const r = Math.max(0, Math.min(1, pass.temp[idx]));
+          const g = Math.max(0, Math.min(1, pass.temp[idx+1]));
+          const b = Math.max(0, Math.min(1, pass.temp[idx+2]));
+          const colors = getBlockDitherColors(pass.blockColors, x, y, pass.bW, pass.bH, pass.numAttrCols, pass.numAttrRows);
+          const ci = quantizeNearest(r, g, b, colors);
+          const chosen = colors[ci];
+          pass.result[idx] = chosen[0];
+          pass.result[idx + 1] = chosen[1];
+          pass.result[idx + 2] = chosen[2];
+          const er = r - chosen[0];
+          const eg = g - chosen[1];
+          const eb = b - chosen[2];
+          for (const [dx, dy, weight] of pass.kernel) {
+            const sx = rtl ? -dx : dx;
+            const nx = x + sx, ny = y + dy;
+            if (nx >= 0 && nx < pass.width && ny >= 0 && ny < pass.height) {
+              const nIdx = (ny * pass.width + nx) * 3;
+              pass.temp[nIdx] += er * weight;
+              pass.temp[nIdx + 1] += eg * weight;
+              pass.temp[nIdx + 2] += eb * weight;
+            }
+          }
+        }
+      }
+      pass.y = yEnd;
+      if (pipelineShouldYield(deadline)) break;
+    }
+    if (pass.y < pass.height) {
+      pipelineSchedule(pipelineStageDitherDiffusionRows, id);
+      return;
+    }
+    pipelineStageFinishDitherPass(id);
+  } catch (err) {
+    pipelineFail(id, err, "Unable to dither conversion result.");
+  }
+}
+
+// Stage 4e: process Hilbert error diffusion along the generated curve in chunks.
+function pipelineStageDitherHilbertPixels(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "dither-hilbert-pixels";
+  const pass = state.ditherPass;
+  if (!pass || !pass.temp || !pass.order) {
+    pipelineFail(id, new Error("Missing Hilbert dither state"), "Unable to dither conversion result.");
+    return;
+  }
+  try {
+    const deadline = pipelineWorkDeadline();
+    while (pass.k < pass.order.length) {
+      const end = Math.min(pass.order.length, pass.k + DITHER_HILBERT_PIXEL_CHUNK * 2);
+      for (let k = pass.k; k < end; k += 2) {
+        const x = pass.order[k], y = pass.order[k + 1];
+        const idx = (y * pass.width + x) * 3;
+        const r = Math.max(0, Math.min(1, pass.temp[idx]));
+        const g = Math.max(0, Math.min(1, pass.temp[idx + 1]));
+        const b = Math.max(0, Math.min(1, pass.temp[idx + 2]));
+        const colors = getBlockDitherColors(pass.blockColors, x, y, pass.bW, pass.bH, pass.numAttrCols, pass.numAttrRows);
+        const ci = quantizeNearest(r, g, b, colors);
+        const chosen = colors[ci];
+        pass.result[idx] = chosen[0];
+        pass.result[idx + 1] = chosen[1];
+        pass.result[idx + 2] = chosen[2];
+        const er = r - chosen[0];
+        const eg = g - chosen[1];
+        const eb = b - chosen[2];
+        const weights = [5/8, 2/8, 1/8];
+        for (let w = 0; w < 3; w++) {
+          const nk = k + 2 * (w + 1);
+          if (nk >= pass.order.length) break;
+          const nx = pass.order[nk], ny = pass.order[nk + 1];
+          const nIdx = (ny * pass.width + nx) * 3;
+          pass.temp[nIdx] += er * weights[w];
+          pass.temp[nIdx + 1] += eg * weights[w];
+          pass.temp[nIdx + 2] += eb * weights[w];
+        }
+      }
+      pass.k = end;
+      if (pipelineShouldYield(deadline)) break;
+    }
+    if (pass.k < pass.order.length) {
+      pipelineSchedule(pipelineStageDitherHilbertPixels, id);
+      return;
+    }
+    pipelineStageFinishDitherPass(id);
+  } catch (err) {
+    pipelineFail(id, err, "Unable to dither conversion result.");
+  }
+}
+
+function pipelineStageFinishDitherPass(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  const pass = state.ditherPass;
+  if (!pass) {
+    pipelineFail(id, new Error("Missing finished dither pass"), "Unable to dither conversion result.");
+    return;
+  }
+  const reason = pass.reason;
+  state.ditherPass = null;
+  if (reason === "initial") {
+    const q = state.quantizeWork;
+    const needsGS =
+      state.gaussSeidel &&
+      q &&
+      q.strategy === "exhaustive" &&
+      (state.mode === "standard" || state.mode === "ts-standard" || state.mode === "ecm") &&
+      q.attrs;
+    if (needsGS) pipelineStageAfterInitialDither(id);
+    else pipelineStageCompleteDitherQuantizedBlocks(id);
+    return;
+  }
+  if (reason === "gs") {
+    pipelineStageGSAfterDither(id);
+    return;
+  }
+  pipelineFail(id, new Error(`Unknown dither pass reason: ${reason}`), "Unable to dither conversion result.");
+}
+
+// Stage 4f: run optional refinement after the first staged dither pass.
+function pipelineStageAfterInitialDither(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "dither-after-initial";
+  const mode = state.mode;
+  const gaussSeidel = state.gaussSeidel;
+  const q = state.quantizeWork;
+  if (!q) {
+    pipelineFail(id, new Error("Missing quantize state"), "Unable to dither conversion result.");
+    return;
+  }
+  const strategy = q.strategy;
+  const numAttrCols = q.numAttrCols;
+  const numAttrRows = q.numAttrRows;
+  const attrs = q.attrs;
+
+  if (
+    gaussSeidel &&
+    strategy === "exhaustive" &&
+    (mode === "standard" || mode === "ts-standard" || mode === "ecm") &&
+    attrs
+  ) {
+    state.gsPass = {
+      blockErr: new Float64Array(numAttrRows * numAttrCols),
+      offset: 0,
+      iter: 0,
+      changed: 0,
+      upgraded: 0,
+      threshold: 0,
+    };
+    pipelineStageGSComputeBlockErrors(id);
+    return;
+  }
+  pipelineStageCompleteDitherQuantizedBlocks(id);
+}
+
+// Stage 4g: compute per-block errors for Gauss-Seidel refinement in chunks.
+function pipelineStageGSComputeBlockErrors(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "gs-compute-block-errors";
+  const q = state.quantizeWork;
+  const pass = state.gsPass;
+  if (!q || !pass) {
+    pipelineFail(id, new Error("Missing GS error state"), "Unable to refine dithered blocks.");
+    return;
+  }
+  try {
+    const total = q.numAttrRows * q.numAttrCols;
+    const deadline = pipelineWorkDeadline();
+    while (pass.offset < total) {
+      const end = Math.min(total, pass.offset + QUANTIZE_BLOCK_CHUNK);
+      for (let cell = pass.offset; cell < end; cell++) {
+        const by = (cell / q.numAttrCols) | 0;
+        const bx = cell - by * q.numAttrCols;
+        recomputeDitherBlockError(pass.blockErr, state.work, q.resultLinear, state.screenWidth, q.bW, q.bH, q.numAttrCols, by, bx);
+      }
+      pass.offset = end;
+      if (pipelineShouldYield(deadline)) break;
+    }
+    if (pass.offset < total) {
+      pipelineSchedule(pipelineStageGSComputeBlockErrors, id);
+      return;
+    }
+    const sorted = Array.from(pass.blockErr).sort((a,b) => a - b);
+    pass.threshold = sorted[Math.floor(sorted.length * 0.75)] ?? 0;
+    pass.offset = 0;
+    pass.changed = 0;
+    pipelineStageGSRefineBlocks(id);
+  } catch (err) {
+    pipelineFail(id, err, "Unable to refine dithered blocks.");
+  }
+}
+
+// Stage 4h: test nearby ink/paper candidates for hard blocks in chunks.
+function pipelineStageGSRefineBlocks(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "gs-refine-blocks";
+  const q = state.quantizeWork;
+  const pass = state.gsPass;
+  if (!q || !pass || !q.attrs) {
+    pipelineFail(id, new Error("Missing GS refinement state"), "Unable to refine dithered blocks.");
+    return;
+  }
+  try {
+    const screenW = state.screenWidth;
+    const blockWork = state.blockWork;
+    const palettes = state.palettes;
+    const colorMasks = state.colorMasks;
+    const ditherMode = state.ditherMode;
+    const total = q.numAttrRows * q.numAttrCols;
+    const deadline = pipelineWorkDeadline();
+    while (pass.offset < total) {
+      const end = Math.min(total, pass.offset + QUANTIZE_BLOCK_CHUNK);
+      for (let cell = pass.offset; cell < end; cell++) {
+        if (pass.blockErr[cell] <= pass.threshold) continue;
+        const by = (cell / q.numAttrCols) | 0;
+        const bx = cell - by * q.numAttrCols;
+        const blockX = bx * q.bW, blockY = by * q.bH;
+        const curPair = q.blockIndices[by][bx];
+        const curInk = curPair[0], curPaper = curPair[1];
+        const curAttr = q.attrs[cell];
+        const curBright = (curAttr >> 6) & 1;
+        let bestErr = evaluateBlock(blockWork, screenW, blockX, blockY, q.bW, q.bH,
+          [palettes[curBright][curInk], palettes[curBright][curPaper]], ditherMode);
+        let bestInk = curInk, bestPaper = curPaper, bestBright = curBright;
+
+        for (let c = 0; c < 8; c++) {
+          if (c !== curPaper && isPipelineColorEnabled(colorMasks, curBright, c) && isPipelineColorEnabled(colorMasks, curBright, curPaper)) {
+            const pal = palettes[curBright];
+            const err = evaluateBlock(blockWork, screenW, blockX, blockY, q.bW, q.bH, [pal[c], pal[curPaper]], ditherMode);
+            if (err < bestErr) { bestErr = err; bestInk = c; bestPaper = curPaper; bestBright = curBright; }
+          }
+          if (c !== curInk && isPipelineColorEnabled(colorMasks, curBright, curInk) && isPipelineColorEnabled(colorMasks, curBright, c)) {
+            const pal = palettes[curBright];
+            const err = evaluateBlock(blockWork, screenW, blockX, blockY, q.bW, q.bH, [pal[curInk], pal[c]], ditherMode);
+            if (err < bestErr) { bestErr = err; bestInk = curInk; bestPaper = c; bestBright = curBright; }
+          }
+        }
+        const flipBright = curBright ^ 1;
+        for (let c = 0; c < 8; c++) {
+          if (!isPipelineColorEnabled(colorMasks, flipBright, c) || !isPipelineColorEnabled(colorMasks, flipBright, curPaper)) continue;
+          const pal = palettes[flipBright];
+          const err = evaluateBlock(blockWork, screenW, blockX, blockY, q.bW, q.bH, [pal[c], pal[curPaper]], ditherMode);
+          if (err < bestErr) { bestErr = err; bestInk = c; bestPaper = curPaper; bestBright = flipBright; }
+        }
+        if (bestInk !== curInk || bestPaper !== curPaper || bestBright !== curBright) {
+          const pal = palettes[bestBright];
+          q.blockColors[by][bx] = [pal[bestInk], pal[bestPaper]];
+          q.blockIndices[by][bx] = [bestInk, bestPaper];
+          q.attrs[cell] = (bestBright << 6) | (bestPaper << 3) | bestInk;
+          pass.changed++;
+        }
+      }
+      pass.offset = end;
+      if (pipelineShouldYield(deadline)) break;
+    }
+    if (pass.offset < total) {
+      pipelineSchedule(pipelineStageGSRefineBlocks, id);
+      return;
+    }
+    pass.iter++;
+    if (pass.changed === 0) {
+      pipelineStageGSFinish(id);
+      return;
+    }
+    pass.upgraded += pass.changed;
+    pipelineStartDitherPass(id, "gs");
+  } catch (err) {
+    pipelineFail(id, err, "Unable to refine dithered blocks.");
+  }
+}
+
+// Stage 4i: after a GS re-dither, either iterate again or finish.
+function pipelineStageGSAfterDither(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "gs-after-dither";
+  const pass = state.gsPass;
+  if (!pass) {
+    pipelineFail(id, new Error("Missing GS post-dither state"), "Unable to refine dithered blocks.");
+    return;
+  }
+  if (pass.iter >= 3) {
+    pipelineStageGSFinish(id);
+    return;
+  }
+  pass.offset = 0;
+  pipelineStageGSComputeBlockErrors(id);
+}
+
+// Stage 4j: publish Gauss-Seidel summary metadata and finish dithering.
+function pipelineStageGSFinish(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "gs-finish";
+  const q = state.quantizeWork;
+  const pass = state.gsPass;
+  if (!q || !pass) {
+    pipelineFail(id, new Error("Missing GS finish state"), "Unable to refine dithered blocks.");
+    return;
+  }
+  q.modeMeta.gsIters = pass.iter;
+  q.modeMeta.gsUpgraded = pass.upgraded;
+  state.gsPass = null;
+  pipelineStageCompleteDitherQuantizedBlocks(id);
+}
+
+function pipelineStageCompleteDitherQuantizedBlocks(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "dither-complete";
+  const q = state.quantizeWork;
+  if (!q) {
+    pipelineFail(id, new Error("Missing quantize state"), "Unable to finish conversion result.");
+    return;
+  }
+  state.resultLinear = q.resultLinear;
+  state.resultPixels = null;
+  state.attrs = q.attrs;
+  state.blockIndices = q.blockIndices;
+  state.modeMeta = q.modeMeta;
+  state.scrBytes = null;
+  state.tapBlocks = null;
+  state.quantizePass = null;
+  state.ditherPass = null;
+  state.zx81Pass = null;
+  state.gsPass = null;
+  state.quantizeWork = null;
+  pipelineStageRenderConversionResult(id);
+}
+
+// Stage 5: prepare chunked conversion of the linear result for display/export.
+function pipelineStageRenderConversionResult(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "render-result";
+  pipelineSwitchTiming(state, "output");
+  const resultLinear = state.resultLinear;
+  if (!resultLinear) {
+    pipelineFail(id, new Error("Missing quantized result"), "Unable to render conversion result.");
+    return;
+  }
+  state.resultPixels = new Uint8Array(resultLinear.length);
+  state.resultConvertOffset = 0;
+  pipelineStageConvertResultToSRGB(id);
+}
+
+// Stage 5a: convert a bounded chunk of linear RGB values to display sRGB.
+function pipelineStageConvertResultToSRGB(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  state.stage = "convert-result-srgb";
+  const resultLinear = state.resultLinear;
+  const resultPixels = state.resultPixels;
+  if (!resultLinear || !resultPixels) {
+    pipelineFail(id, new Error("Missing conversion buffers"), "Unable to render conversion result.");
+    return;
+  }
+  // Convert result pixels back to sRGB for display and image export.
+  // Binary exporters reconstruct their palette RGB data lazily from compact
+  // palette indices in buildBinaryExportData().
+  const deadline = pipelineWorkDeadline();
+  while (state.resultConvertOffset < resultPixels.length) {
+    const end = Math.min(resultPixels.length, state.resultConvertOffset + RESULT_SRGB_COMPONENT_CHUNK);
+    for (let i = state.resultConvertOffset; i < end; i++) {
       resultPixels[i] = Math.max(0, Math.min(255, Math.round(linearToSrgb(resultLinear[i]))));
     }
-
-    const elapsedForImageProcessing = (performance.now() - t0).toFixed(0);
-
-    convertedPixels = resultPixels;
-    setBinaryExportSource(currentMode, resultPixels, attrs, blockIndices, modeMeta);
-
-    // Render converted preview
-    renderConvertedPreview(resultPixels);
-
-    const elapsed = (performance.now() - t0).toFixed(0);
-    let extra = "";
-    if (modeMeta.gsIters) extra = ` — GS ${modeMeta.gsIters} iter(s), ${modeMeta.gsUpgraded} block(s) upgraded`;
-    UI.statusText.textContent = `Converted in ${elapsed}ms (${elapsedForImageProcessing}ms image processing) (${currentMode})${extra}`;
-    UI.statusSize.textContent = `${screenWidth}×${screenHeight}`;
-
-    setExportButtonsEnabled(true, currentMode);
-  }, convertTimeoutMs);
+    state.resultConvertOffset = end;
+    if (pipelineShouldYield(deadline)) break;
+  }
+  if (state.resultConvertOffset < resultPixels.length) {
+    pipelineSchedule(pipelineStageConvertResultToSRGB, id);
+    return;
+  }
+  pipelineStageFinishRenderConversionResult(id);
 }
+
+// Stage 5b: publish converted pixels to preview and make lazy exports available.
+function pipelineStageFinishRenderConversionResult(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  const t0 = state.t0;
+  const modeMeta = state.modeMeta || {};
+  const resultPixels = state.resultPixels;
+  if (!resultPixels) {
+    pipelineFail(id, new Error("Missing converted pixels"), "Unable to render conversion result.");
+    return;
+  }
+  convertedPixels = resultPixels;
+  setBinaryExportSource(state);
+
+  // Render converted preview
+  renderConvertedPreview(resultPixels);
+  pipelineFinishTiming(state);
+
+  const elapsed = (performance.now() - t0).toFixed(0);
+  const timingReport = pipelineTimingReport(state);
+  let extra = "";
+  if (modeMeta.gsIters) extra = ` — GS ${modeMeta.gsIters} iter(s), ${modeMeta.gsUpgraded} block(s) upgraded`;
+  UI.statusText.textContent = `Converted in ${elapsed}ms (${timingReport}) (${state.mode})${extra}`;
+  UI.statusSize.textContent = `${state.screenWidth}×${state.screenHeight}`;
+
+  setExportButtonsEnabled(true, state.mode);
+  state.stage = "complete";
+}
+
 
 // --- Find nearest palette color to given RGB ---
 function quantizeNearest(r, g, b, colors) {
   let bestIdx = 0, bestDist = Infinity;
   for (let i = 0; i < colors.length; i++) {
-    const d = colorDist([r, g, b], colors[i]);
+    const color = colors[i];
+    const d = colorDistValues(r, g, b, color[0], color[1], color[2]);
     if (d < bestDist) {
       bestDist = d;
       bestIdx = i;
@@ -3279,11 +5187,26 @@ function quantizeNearest(r, g, b, colors) {
   return bestIdx;
 }
 
+function recomputeDitherBlockError(blockErr, work, result, width, bW, bH, numAttrCols, by, bx) {
+  let sum = 0;
+  const blockX = bx * bW, blockY = by * bH;
+  for (let py = 0; py < bH; py++) {
+    for (let px = 0; px < bW; px++) {
+      const idx = ((blockY + py) * width + (blockX + px)) * 3;
+      const dr = work[idx]   - result[idx];
+      const dg = work[idx+1] - result[idx+1];
+      const db = work[idx+2] - result[idx+2];
+      sum += 3*dr*dr + 4*dg*dg + 2*db*db;
+    }
+  }
+  blockErr[by * numAttrCols + bx] = sum;
+}
+
 // --- Evaluate a block with a given set of N colors (returns total error) ---
 // Supports any number of colors >= 2. For N=2, threshold dithers use the
 // blendFactor-based approach (smoother). For N>2 they fall back to
 // nearest-with-threshold-bias.
-function evaluateBlock(work, bx, by, bw, bh, colors, ditherMode) {
+function evaluateBlock(work, width, bx, by, bw, bh, colors, ditherMode) {
   let totalError = 0;
 
   if (isThresholdDither(ditherMode)) {
@@ -3291,14 +5214,14 @@ function evaluateBlock(work, bx, by, bw, bh, colors, ditherMode) {
       const c0 = colors[0], c1 = colors[1];
       for (let py = 0; py < bh; py++) {
         for (let px = 0; px < bw; px++) {
-          const idx = ((by + py) * screenWidth + (bx + px)) * 3;
+          const idx = ((by + py) * width + (bx + px)) * 3;
           const r = Math.max(0, Math.min(1, work[idx]));
           const g = Math.max(0, Math.min(1, work[idx+1]));
           const b = Math.max(0, Math.min(1, work[idx+2]));
           const factor = blendFactor(r, g, b, c0, c1, ditherMode);
           const threshold = getThreshold(ditherMode, bx + px, by + py);
           const chosen = factor > threshold ? c1 : c0;
-          totalError += colorDist([r, g, b], chosen);
+          totalError += colorDistValues(r, g, b, chosen[0], chosen[1], chosen[2]);
         }
       }
     } else {
@@ -3307,13 +5230,13 @@ function evaluateBlock(work, bx, by, bw, bh, colors, ditherMode) {
       // gradients in C64 Koala / Atari GR.15 blocks.
       for (let py = 0; py < bh; py++) {
         for (let px = 0; px < bw; px++) {
-          const idx = ((by + py) * screenWidth + (bx + px)) * 3;
+          const idx = ((by + py) * width + (bx + px)) * 3;
           const r = Math.max(0, Math.min(1, work[idx]));
           const g = Math.max(0, Math.min(1, work[idx+1]));
           const b = Math.max(0, Math.min(1, work[idx+2]));
           const threshold = getThreshold(ditherMode, bx + px, by + py);
           const chosen = yliluomaLiteChoose(r, g, b, colors, ditherMode, threshold);
-          totalError += colorDist([r, g, b], chosen);
+          totalError += colorDistValues(r, g, b, chosen[0], chosen[1], chosen[2]);
         }
       }
     }
@@ -3325,7 +5248,7 @@ function evaluateBlock(work, bx, by, bw, bh, colors, ditherMode) {
   const temp = new Float64Array(tempW * tempH * 3);
   for (let py = 0; py < bh; py++) {
     for (let px = 0; px < bw; px++) {
-      const srcIdx = ((by + py) * screenWidth + (bx + px)) * 3;
+      const srcIdx = ((by + py) * width + (bx + px)) * 3;
       const tIdx = (py * tempW + px) * 3;
       temp[tIdx]     = work[srcIdx];
       temp[tIdx + 1] = work[srcIdx + 1];
@@ -3343,7 +5266,7 @@ function evaluateBlock(work, bx, by, bw, bh, colors, ditherMode) {
       const b = Math.max(0, Math.min(1, temp[tIdx+2]));
       const ci = quantizeNearest(r, g, b, colors);
       const chosen = colors[ci];
-      totalError += colorDist([r, g, b], chosen);
+      totalError += colorDistValues(r, g, b, chosen[0], chosen[1], chosen[2]);
 
       if (kernel) {
         const er = r - chosen[0];
@@ -3370,119 +5293,10 @@ function evaluateBlock(work, bx, by, bw, bh, colors, ditherMode) {
 // blocks are only 8×1 pixels). Threshold dithers (ordered / blue noise / etc)
 // give the same result per-block or globally since they use global coordinates.
 //
-// getColorsAt(x, y) returns an array of RGB triples [[r,g,b], ...] — the
-// palette available to the block containing pixel (x, y). Array length must
-// be >= 1.
-function applyGlobalDither(work, result, ditherMode, getColorsAt, opts) {
-  const W = screenWidth, H = screenHeight;
-  const serpentine = !!(opts && opts.serpentine);
-
-  if (isThresholdDither(ditherMode)) {
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
-        const idx = (y * W + x) * 3;
-        const r = Math.max(0, Math.min(1, work[idx]));
-        const g = Math.max(0, Math.min(1, work[idx+1]));
-        const b = Math.max(0, Math.min(1, work[idx+2]));
-        const colors = getColorsAt(x, y);
-
-        let chosen;
-        const threshold = getThreshold(ditherMode, x, y);
-        if (colors.length === 2) {
-          const factor = blendFactor(r, g, b, colors[0], colors[1], ditherMode);
-          chosen = factor > threshold ? colors[1] : colors[0];
-        } else {
-          // N > 2: Yliluoma-lite — two-nearest projection + threshold.
-          chosen = yliluomaLiteChoose(r, g, b, colors, ditherMode, threshold);
-        }
-        result[idx]     = chosen[0];
-        result[idx + 1] = chosen[1];
-        result[idx + 2] = chosen[2];
-      }
-    }
-    return;
-  }
-
-  // Hilbert-curve error diffusion: traverse pixels along a Hilbert
-  // space-filling curve and forward the quantization error to the next pixel
-  // along the curve (plus small side weights to the two pixels before). This
-  // hides the directional artifacts of scanline Floyd-Steinberg.
-  if (ditherMode === "hilbert-fs") {
-    const temp = new Float64Array(W * H * 3);
-    for (let i = 0; i < W * H * 3; i++) temp[i] = work[i];
-    const { order } = hilbertOrder(W, H);
-    for (let k = 0; k < order.length; k += 2) {
-      const x = order[k], y = order[k + 1];
-      const idx = (y * W + x) * 3;
-      const r = Math.max(0, Math.min(1, temp[idx]));
-      const g = Math.max(0, Math.min(1, temp[idx + 1]));
-      const b = Math.max(0, Math.min(1, temp[idx + 2]));
-      const colors = getColorsAt(x, y);
-      const ci = quantizeNearest(r, g, b, colors);
-      const chosen = colors[ci];
-      result[idx]     = chosen[0];
-      result[idx + 1] = chosen[1];
-      result[idx + 2] = chosen[2];
-      const er = r - chosen[0];
-      const eg = g - chosen[1];
-      const eb = b - chosen[2];
-      // Spread error: 5/8 to next-in-curve, 2/8 to next+1, 1/8 to next+2.
-      const weights = [5/8, 2/8, 1/8];
-      for (let w = 0; w < 3; w++) {
-        const nk = k + 2 * (w + 1);
-        if (nk >= order.length) break;
-        const nx = order[nk], ny = order[nk + 1];
-        const nIdx = (ny * W + nx) * 3;
-        temp[nIdx]     += er * weights[w];
-        temp[nIdx + 1] += eg * weights[w];
-        temp[nIdx + 2] += eb * weights[w];
-      }
-    }
-    return;
-  }
-
-  // Error diffusion (or none): single global pass over the whole image so
-  // errors propagate across block boundaries.
-  const temp = new Float64Array(W * H * 3);
-  for (let i = 0; i < W * H * 3; i++) temp[i] = work[i];
-  const kernel = DIFFUSION_KERNELS[ditherMode];
-
-  for (let y = 0; y < H; y++) {
-    // Serpentine: alternate rows are traversed right-to-left, and the
-    // kernel's x-offsets are mirrored. Kills directional "worm" artifacts.
-    const rtl = serpentine && (y & 1) === 1;
-    const xStart = rtl ? W - 1 : 0;
-    const xEnd = rtl ? -1 : W;
-    const xStep = rtl ? -1 : 1;
-    for (let x = xStart; x !== xEnd; x += xStep) {
-      const idx = (y * W + x) * 3;
-      const r = Math.max(0, Math.min(1, temp[idx]));
-      const g = Math.max(0, Math.min(1, temp[idx+1]));
-      const b = Math.max(0, Math.min(1, temp[idx+2]));
-      const colors = getColorsAt(x, y);
-      const ci = quantizeNearest(r, g, b, colors);
-      const chosen = colors[ci];
-      result[idx]     = chosen[0];
-      result[idx + 1] = chosen[1];
-      result[idx + 2] = chosen[2];
-
-      if (kernel) {
-        const er = r - chosen[0];
-        const eg = g - chosen[1];
-        const eb = b - chosen[2];
-        for (const [dx, dy, weight] of kernel) {
-          const sx = rtl ? -dx : dx;
-          const nx = x + sx, ny = y + dy;
-          if (nx >= 0 && nx < W && ny >= 0 && ny < H) {
-            const nIdx = (ny * W + nx) * 3;
-            temp[nIdx]     += er * weight;
-            temp[nIdx + 1] += eg * weight;
-            temp[nIdx + 2] += eb * weight;
-          }
-        }
-      }
-    }
-  }
+function getBlockDitherColors(blockColors, x, y, bW, bH, numAttrCols, numAttrRows) {
+  const bx = Math.min(numAttrCols - 1, Math.floor(x / bW));
+  const by = Math.min(numAttrRows - 1, Math.floor(y / bH));
+  return blockColors[by][bx];
 }
 
 // --- Generate Standard ZX Spectrum SCREEN$ (6912 bytes) ---
@@ -3508,8 +5322,10 @@ function generateStandardScreen(pixels, attrs) {
         const pal = bright ? PALETTE_ZX_BRIGHT : PALETTE_NORMAL;
 
         // Is this pixel ink (1) or paper (0)?
-        const inkDist = colorDist([pixels[pIdx], pixels[pIdx+1], pixels[pIdx+2]], pal[ink]);
-        const paperDist = colorDist([pixels[pIdx], pixels[pIdx+1], pixels[pIdx+2]], pal[paper]);
+        const r = pixels[pIdx], g = pixels[pIdx+1], b = pixels[pIdx+2];
+        const inkRGB = pal[ink], paperRGB = pal[paper];
+        const inkDist = colorDistValues(r, g, b, inkRGB[0], inkRGB[1], inkRGB[2]);
+        const paperDist = colorDistValues(r, g, b, paperRGB[0], paperRGB[1], paperRGB[2]);
         if (inkDist <= paperDist) {
           byte |= (0x80 >> bit);
         }
@@ -3550,9 +5366,10 @@ function generateECMScreen(pixels, attrs) {
       for (let bit = 0; bit < 8; bit++) {
         const x = col * 8 + bit;
         const pIdx = (y * 256 + x) * 3;
-        const pixel = [pixels[pIdx], pixels[pIdx+1], pixels[pIdx+2]];
-        const inkDist = colorDist(pixel, pal[ink]);
-        const paperDist = colorDist(pixel, pal[paper]);
+        const r = pixels[pIdx], g = pixels[pIdx+1], b = pixels[pIdx+2];
+        const inkRGB = pal[ink], paperRGB = pal[paper];
+        const inkDist = colorDistValues(r, g, b, inkRGB[0], inkRGB[1], inkRGB[2]);
+        const paperDist = colorDistValues(r, g, b, paperRGB[0], paperRGB[1], paperRGB[2]);
         if (inkDist <= paperDist) byte |= (0x80 >> bit);
       }
       pixBuf[addr + col] = byte;
@@ -3587,8 +5404,9 @@ function generate64ColScreen(pixels, attrs) {
       for (let bit = 0; bit < 8; bit++) {
         const x = charCol * 8 + bit;
         const pIdx = (y * 512 + x) * 3;
-        const pixel = [pixels[pIdx], pixels[pIdx+1], pixels[pIdx+2]];
-        if (colorDist(pixel, inkRGB) <= colorDist(pixel, paperRGB)) {
+        const r = pixels[pIdx], g = pixels[pIdx+1], b = pixels[pIdx+2];
+        if (colorDistValues(r, g, b, inkRGB[0], inkRGB[1], inkRGB[2]) <=
+            colorDistValues(r, g, b, paperRGB[0], paperRGB[1], paperRGB[2])) {
           byte |= (0x80 >> bit);
         }
       }
@@ -3625,9 +5443,9 @@ function generateC64Hires(pixels, blockColors, blockIndices) {
         for (let sx = 0; sx < 8; sx++) {
           const x = col * 8 + sx;
           const pIdx = (y * W + x) * 3;
-          const px = [pixels[pIdx], pixels[pIdx+1], pixels[pIdx+2]];
-          const dFg = colorDist(px, fgRGB);
-          const dBg = colorDist(px, bgRGB);
+          const r = pixels[pIdx], g = pixels[pIdx+1], b = pixels[pIdx+2];
+          const dFg = colorDistValues(r, g, b, fgRGB[0], fgRGB[1], fgRGB[2]);
+          const dBg = colorDistValues(r, g, b, bgRGB[0], bgRGB[1], bgRGB[2]);
           if (dFg <= dBg) byte |= (0x80 >> sx);
         }
         bitmap[(row * 40 + col) * 8 + sy] = byte;
@@ -3665,10 +5483,11 @@ function generateC64Koala(pixels, blockColors, blockIndices, bgIdx) {
         for (let sx = 0; sx < 4; sx++) {
           const x = col * 4 + sx;
           const pIdx = (y * W + x) * 3;
-          const px = [pixels[pIdx], pixels[pIdx+1], pixels[pIdx+2]];
+          const r = pixels[pIdx], g = pixels[pIdx+1], b = pixels[pIdx+2];
           let best = 0, bestD = Infinity;
           for (let k = 0; k < 4; k++) {
-            const d = colorDist(px, colors[k]);
+            const color = colors[k];
+            const d = colorDistValues(r, g, b, color[0], color[1], color[2]);
             if (d < bestD) { bestD = d; best = k; }
           }
           // bit pair within byte: leftmost pixel = bits 7-6
@@ -3691,17 +5510,23 @@ function generateAtariGr15(pixels, regIndices) {
   const W = 160, H = 192;
   const out = new Uint8Array(7684);
   const bitmap = out.subarray(0, 7680);
-  const colors = regIndices.map(i => PALETTE_ATARI[i]);
+  const colors = [
+    PALETTE_ATARI[regIndices[0]],
+    PALETTE_ATARI[regIndices[1]],
+    PALETTE_ATARI[regIndices[2]],
+    PALETTE_ATARI[regIndices[3]],
+  ];
   for (let y = 0; y < H; y++) {
     for (let xb = 0; xb < 40; xb++) {
       let byte = 0;
       for (let sx = 0; sx < 4; sx++) {
         const x = xb * 4 + sx;
         const pIdx = (y * W + x) * 3;
-        const px = [pixels[pIdx], pixels[pIdx+1], pixels[pIdx+2]];
+        const r = pixels[pIdx], g = pixels[pIdx+1], b = pixels[pIdx+2];
         let best = 0, bestD = Infinity;
         for (let k = 0; k < 4; k++) {
-          const d = colorDist(px, colors[k]);
+          const color = colors[k];
+          const d = colorDistValues(r, g, b, color[0], color[1], color[2]);
           if (d < bestD) { bestD = d; best = k; }
         }
         const shift = (3 - sx) * 2;
@@ -3717,7 +5542,7 @@ function generateAtariGr15(pixels, regIndices) {
 }
 
 // ==============================================================
-// Atari GR.8: 320×192 mono, 7680 bytes, 1 bpp, MSB-first, 40 bytes/line
+// Atari GR.8: 320×192 2-color hi-res, 7680 bytes, 1 bpp, MSB-first, 40 bytes/line
 // ==============================================================
 function generateAtariGr8(pixels, colorPair) {
   const W = 320, H = 192;
@@ -3729,8 +5554,11 @@ function generateAtariGr8(pixels, colorPair) {
       for (let sx = 0; sx < 8; sx++) {
         const x = xb * 8 + sx;
         const pIdx = (y * W + x) * 3;
-        const px = [pixels[pIdx], pixels[pIdx+1], pixels[pIdx+2]];
-        if (colorDist(px, fg) <= colorDist(px, bg)) byte |= (0x80 >> sx);
+        const r = pixels[pIdx], g = pixels[pIdx+1], b = pixels[pIdx+2];
+        if (colorDistValues(r, g, b, fg[0], fg[1], fg[2]) <=
+            colorDistValues(r, g, b, bg[0], bg[1], bg[2])) {
+          byte |= (0x80 >> sx);
+        }
       }
       out[y * 40 + xb] = byte;
     }
@@ -3864,6 +5692,15 @@ function generatePico8Txt(pixels) {
     out[oi] = 10; // LF
     oi++;
   }
+  return out;
+}
+
+// ZX81 character screen: 32x24 character codes, row-major.
+function generateZX81Output(chars) {
+  const out = new Uint8Array(32 * 24);
+  if (!chars) return out;
+  const count = Math.min(out.length, chars.length);
+  for (let i = 0; i < count; i++) out[i] = chars[i] & 0xFF;
   return out;
 }
 
@@ -4040,32 +5877,7 @@ function setExportButtonsEnabled(enabled, mode = currentMode) {
   UI.exportPico8Txt.disabled = !hasPixels || mode !== "pico8";
 }
 
-function setBinaryExportSource(mode, pixels, attrs, blockIndices, modeMeta) {
-  const state = {
-    mode,
-    pixels,
-    attrs: null,
-    blockIndices: null,
-    modeMeta: {},
-    scrBytes: null,
-    tapBlocks: null,
-  };
-  if (mode === "standard" || mode === "ts-standard" || mode === "ecm" || mode === "hires") {
-    state.attrs = attrs;
-  } else if (
-    mode === "c64-hires-ntsc" || mode === "c64-hires-pal" ||
-    mode === "c64-koala-ntsc" || mode === "c64-koala-pal"
-  ) {
-    state.blockIndices = blockIndices;
-    state.modeMeta.c64Bg = modeMeta.c64Bg;
-  } else if (mode === "atari-gr15") {
-    state.modeMeta.atariRegs = [...modeMeta.atariRegs];
-  } else if (mode === "atari-gr8") {
-    state.modeMeta.atariFg = modeMeta.atariFg;
-    state.modeMeta.atariBg = modeMeta.atariBg;
-  } else if (mode === "atari-gr9") {
-    state.modeMeta.gr9Hue = modeMeta.gr9Hue;
-  }
+function setBinaryExportSource(state) {
   binaryExportState = state;
 }
 
@@ -4086,12 +5898,12 @@ function reconstructBlockColors(blockIndices, palette) {
 
 function buildBinaryExportData() {
   const state = binaryExportState;
-  if (!state || !state.pixels) return null;
+  if (!state || !state.resultPixels) return null;
   if (state.scrBytes) return state;
 
   const mode = state.mode;
   const modeCfg = MODES[mode] ?? MODES.standard;
-  const pixels = state.pixels;
+  const pixels = state.resultPixels;
   const attrs = state.attrs;
   const blockIndices = state.blockIndices;
   const modeMeta = state.modeMeta;
@@ -4138,6 +5950,8 @@ function buildBinaryExportData() {
     bytes = generateQLMode4(pixels);
   } else if (mode === "pico8") {
     bytes = generatePico8Bin(pixels);
+  } else if (isZX81Mode(mode)) {
+    bytes = generateZX81Output(modeMeta.zx81Chars);
   } else {
     bytes = new Uint8Array(0);
   }
@@ -4215,7 +6029,7 @@ UI.exportTap.addEventListener("click", () => {
 // suitable for pasting into a Pico-8 cartridge __gfx__ section.
 UI.exportPico8Txt.addEventListener("click", () => {
   if (!binaryExportState || binaryExportState.mode !== "pico8") return;
-  const txtBytes = generatePico8Txt(binaryExportState.pixels);
+  const txtBytes = generatePico8Txt(binaryExportState.resultPixels);
   downloadBlob(new Blob([txtBytes], { type: "text/plain" }),
                "image_pico8.txt");
 });
@@ -4241,16 +6055,6 @@ let crtOutputRendererUnavailable = false;
 let crtAnimationStarted = false;
 let crtBorderColorIndex = 0;
 
-function getCRTBorderColorSRGB(modeCfg = getDisplayedOutputModeCfg()) {
-  const color = getCurrentBorderColorSRGB(modeCfg);
-  return color ? [...color] : null;
-}
-
-function getCRTBorderColorLinear(modeCfg = getDisplayedOutputModeCfg()) {
-  const color = getCurrentBorderColorSRGB(modeCfg);
-  return color ? color.map(c => srgbToLinear(c)) : null;
-}
-
 function hasVisibleModeBorder(modeCfg) {
   const border = getModeBorder(modeCfg);
   return border.left + border.right + border.top + border.bottom > 0;
@@ -4270,13 +6074,9 @@ function getModeBorderPalette(modeCfg) {
   return palette && palette.length ? palette : [[0, 0, 0]];
 }
 
-function getCurrentBorderPalette(modeCfg = getDisplayedOutputModeCfg()) {
-  return getModeBorderPalette(modeCfg);
-}
-
 function normalizeCRTBorderColorIndex(modeCfg = getDisplayedOutputModeCfg()) {
   if (crtBorderColorIndex === undefined) return;
-  const palette = getCurrentBorderPalette(modeCfg);
+  const palette = getModeBorderPalette(modeCfg);
   if (!palette.length) return;
   const index = Number(crtBorderColorIndex);
   crtBorderColorIndex = Number.isFinite(index)
@@ -4288,7 +6088,7 @@ function getCurrentBorderColorSRGB(modeCfg = getDisplayedOutputModeCfg()) {
   if (!hasVisibleModeBorder(modeCfg)) return null;
   if (crtBorderColorIndex === undefined) return null;
   normalizeCRTBorderColorIndex(modeCfg);
-  const palette = getCurrentBorderPalette(modeCfg);
+  const palette = getModeBorderPalette(modeCfg);
   return palette[Number(crtBorderColorIndex)] || null;
 }
 
@@ -4311,6 +6111,7 @@ function getCRTSettings(scale = getPreviewScale(), modeCfg = getDisplayedOutputM
   const bloom = parseFloat(UI.crtBloomSlider.value);
   const vignette = parseFloat(UI.crtVignetteSlider.value);
   const noise = parseFloat(UI.crtNoiseSlider.value);
+  const borderColor = getCurrentBorderColorSRGB(modeCfg);
   return {
     enabled: crt,
     scale,
@@ -4323,7 +6124,9 @@ function getCRTSettings(scale = getPreviewScale(), modeCfg = getDisplayedOutputM
     bloomSpread: parseFloat(UI.crtBloomSpreadSlider.value),
     vignette,
     noise,
-    borderColor: getCRTBorderColorLinear(modeCfg),
+    borderColor: borderColor
+      ? [srgbToLinear(borderColor[0]), srgbToLinear(borderColor[1]), srgbToLinear(borderColor[2])]
+      : null,
     enableBleed: crt && bleed > 0,
     enableBloom: crt && bloom > 0,
     enableVignette: crt && vignette > 0,
@@ -4387,7 +6190,7 @@ function initCRTBorderPicker() {
   const toggle = UI.crtBorderSwitch;
   const dialog = UI.crtBorderDialog;
   const modeCfg = getDisplayedOutputModeCfg();
-  const palette = getCurrentBorderPalette(modeCfg);
+  const palette = getModeBorderPalette(modeCfg);
   const hasBorder = hasVisibleModeBorder(modeCfg);
   dialog.textContent = "";
   button.style.backgroundColor = "";
@@ -4520,7 +6323,7 @@ function getFullscreenOutputScale(state) {
   const viewport = getFullscreenViewportSize();
   const stretchX = state.displayAspect;
   const stretchY = 1;
-  const hasBorder = !!getCRTBorderColorSRGB(state.modeCfg);
+  const hasBorder = !!getCurrentBorderColorSRGB(state.modeCfg);
   const border = hasBorder ? getModeBorder(state.modeCfg) : { left: 0, right: 0, top: 0, bottom: 0 };
   const targetW = (state.w + border.left + border.right) * state.outScale;
   const targetH = (state.h + border.top + border.bottom) * state.outScale;
@@ -4696,6 +6499,10 @@ function getCurrentProfile() {
     gamma: parseInt(UI.gamma.value),
     hiresPair: UI.hiresPair.value,
     atariHue: UI.atariHue.value,
+    atariGr8FgHue: UI.atariGr8FgHue.value,
+    atariGr8FgLuma: UI.atariGr8FgLuma.value,
+    atariGr8BgHue: UI.atariGr8BgHue.value,
+    atariGr8BgLuma: UI.atariGr8BgLuma.value,
     inkColor: UI.inkColor.value,
     paperColor: UI.paperColor.value,
     hiresBright: UI.hiresBright.value,
@@ -4737,6 +6544,10 @@ function applyProfile(p) {
   set(UI.gamma, p.gamma);
   set(UI.hiresPair, p.hiresPair);
   set(UI.atariHue, p.atariHue);
+  set(UI.atariGr8FgHue, p.atariGr8FgHue);
+  set(UI.atariGr8FgLuma, p.atariGr8FgLuma);
+  set(UI.atariGr8BgHue, p.atariGr8BgHue);
+  set(UI.atariGr8BgLuma, p.atariGr8BgLuma);
   set(UI.inkColor, p.inkColor);
   set(UI.paperColor, p.paperColor);
   set(UI.hiresBright, p.hiresBright);
@@ -4789,6 +6600,7 @@ function applyProfile(p) {
   UI.saturationVal.textContent = UI.saturation.value;
   UI.gammaVal.textContent = (parseInt(UI.gamma.value) / 100).toFixed(2);
   UI.blockBlurVal.textContent = (parseInt(UI.blockBlur.value) / 10).toFixed(1);
+  updateAtariGr8LumaLabels();
   UI.root.style.setProperty("--crt-scale", String(UI.scaleSlider.value));
   UI.scaleText.textContent = Number(UI.scaleSlider.value).toFixed(2);
   UI.crtBrightnessText.textContent = UI.crtBrightnessSlider.value;
@@ -4916,22 +6728,6 @@ const NEUTRAL_ADJUSTMENTS = {
   gamma: 1,
 };
 
-// Decode only at native image size. All resizing after this point is done from
-// this linear buffer so dithered/high-frequency areas are averaged in linear RGB.
-function decodeImageToLinearRGBA(image) {
-  const width = image.naturalWidth || image.width;
-  const height = image.naturalHeight || image.height;
-  const gpu = getGPUImageProcessor();
-  if (!gpu) throw new Error("WebGL2 image processor is not available");
-  gpuRenderAdjusted(gpu, image, width, height, NEUTRAL_ADJUSTMENTS, false, false, "work");
-  const gl = gpu.gl;
-  gl.bindFramebuffer(gl.FRAMEBUFFER, gpu.workFbo);
-  const pixels = new Float32Array(width * height * 4);
-  gl.readPixels(0, 0, width, height, gl.RGBA, gl.FLOAT, pixels);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  return { pixels, width, height };
-}
-
 function ensureLinearRGBABuffer(outPixels, width, height) {
   const size = width * height * 4;
   return outPixels && outPixels.length === size ? outPixels : new Float32Array(size);
@@ -4972,41 +6768,6 @@ function scaleLinearRGBA(outPixels, outWidth, outHeight, pixels, width, height) 
   return outPixels;
 }
 
-function clearLinearRGBA(outPixels, fill = [0, 0, 0, 1]) {
-  for (let i = 0; i < outPixels.length; i += 4) {
-    outPixels[i + 0] = fill[0];
-    outPixels[i + 1] = fill[1];
-    outPixels[i + 2] = fill[2];
-    outPixels[i + 3] = fill[3];
-  }
-}
-
-function scaleLinearCropToRGBA(outPixels, outWidth, outHeight, source, cropX, cropY, cropW, cropH, dx, dy, dw, dh, fill = [0, 0, 0, 1]) {
-  outPixels = ensureLinearRGBABuffer(outPixels, outWidth, outHeight);
-  clearLinearRGBA(outPixels, fill);
-  if (dw <= 0 || dh <= 0) return outPixels;
-
-  const pixels = source.pixels;
-  const width = source.width;
-  const height = source.height;
-  const scaleX = cropW / dw;
-  const scaleY = cropH / dh;
-  const startX = Math.max(0, dx);
-  const startY = Math.max(0, dy);
-  const endX = Math.min(outWidth, dx + dw);
-  const endY = Math.min(outHeight, dy + dh);
-  for (let y = startY; y < endY; y++) {
-    const localY = y - dy;
-    const fy = cropY + Math.min(Math.max((localY + 0.5) * scaleY - 0.5, 0), cropH - 1);
-    for (let x = startX; x < endX; x++) {
-      const localX = x - dx;
-      const fx = cropX + Math.min(Math.max((localX + 0.5) * scaleX - 0.5, 0), cropW - 1);
-      sampleLinearRGBA(pixels, width, height, fx, fy, outPixels, (y * outWidth + x) * 4);
-    }
-  }
-  return outPixels;
-}
-
 function getAdjustmentParams() {
   return {
     brightness: Number(UI.brightness.value) * 0.02 - 1,
@@ -5016,7 +6777,7 @@ function getAdjustmentParams() {
   };
 }
 
-function adjustLinearColor(r, g, b, params) {
+function writeAdjustedLinearColor(out, offset, r, g, b, params) {
   r = (r - 0.18) * params.contrast + 0.18 + params.brightness;
   g = (g - 0.18) * params.contrast + 0.18 + params.brightness;
   b = (b - 0.18) * params.contrast + 0.18 + params.brightness;
@@ -5025,11 +6786,9 @@ function adjustLinearColor(r, g, b, params) {
   g = luma + (g - luma) * params.saturation;
   b = luma + (b - luma) * params.saturation;
   const invGamma = 1 / params.gamma;
-  return [
-    clamp01(Math.pow(Math.max(r, 0), invGamma)),
-    clamp01(Math.pow(Math.max(g, 0), invGamma)),
-    clamp01(Math.pow(Math.max(b, 0), invGamma)),
-  ];
+  out[offset + 0] = clamp01(Math.pow(Math.max(r, 0), invGamma));
+  out[offset + 1] = clamp01(Math.pow(Math.max(g, 0), invGamma));
+  out[offset + 2] = clamp01(Math.pow(Math.max(b, 0), invGamma));
 }
 
 function srgbToLinearPalettes(pals) {
@@ -5040,78 +6799,6 @@ function srgbToLinearPalette(pal) {
   return pal.map(function (col) {
     return col.map(srgbToLinear);
   });
-}
-
-function gaussianBlur(src, W, H, radius) {
-  const tmp = new Float32Array(src.length);
-  const out = new Float32Array(src.length);
-  const spread = 1 / Math.max(radius * radius, 1);
-  // Horizontal
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      let sr = 0, sg = 0, sb = 0, weightSum = 0;
-      for (let k = -16; k <= 16; k++) {
-        if (Math.abs(k) > radius) continue;
-        let xi = x + k;
-        if (xi < 0) xi = 0; else if (xi >= W) xi = W - 1;
-        const i = (y * W + xi) * 3;
-        const w = Math.exp(-(k * k) * spread);
-        sr += src[i] * w; sg += src[i+1] * w; sb += src[i+2] * w;
-        weightSum += w;
-      }
-      const o = (y * W + x) * 3;
-      tmp[o] = sr / weightSum; tmp[o+1] = sg / weightSum; tmp[o+2] = sb / weightSum;
-    }
-  }
-  // Vertical
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      let sr = 0, sg = 0, sb = 0, weightSum = 0;
-      for (let k = -16; k <= 16; k++) {
-        if (Math.abs(k) > radius) continue;
-        let yi = y + k;
-        if (yi < 0) yi = 0; else if (yi >= H) yi = H - 1;
-        const i = (yi * W + x) * 3;
-        const w = Math.exp(-(k * k) * spread);
-        sr += tmp[i] * w; sg += tmp[i+1] * w; sb += tmp[i+2] * w;
-        weightSum += w;
-      }
-      const o = (y * W + x) * 3;
-      out[o] = sr / weightSum; out[o+1] = sg / weightSum; out[o+2] = sb / weightSum;
-    }
-  }
-  return out;
-}
-
-function prepareLinearImageWork(linearRGBA, opts) {
-  try {
-    const gpu = getGPUImageProcessor();
-    if (gpu) return gpuProcessLinear(gpu, linearRGBA, opts.width, opts.height, opts.adjustments, opts.blockBlurRadius);
-  } catch (err) {
-    warnGPUFallback(err);
-  }
-  return prepareLinearImageWorkCPU(linearRGBA, opts.width, opts.height, opts.adjustments, opts.blockBlurRadius);
-}
-
-function prepareLinearImageWorkCPU(linearRGBA, width, height, adjustments, blockBlurRadius) {
-  const work = new Float32Array(width * height * 3);
-  for (let i = 0; i < width * height; i++) {
-    const si = i * 4;
-    const di = i * 3;
-    const adjusted = adjustLinearColor(
-      linearRGBA[si + 0],
-      linearRGBA[si + 1],
-      linearRGBA[si + 2],
-      adjustments
-    );
-    work[di + 0] = adjusted[0];
-    work[di + 1] = adjusted[1];
-    work[di + 2] = adjusted[2];
-  }
-  return {
-    work,
-    blockWork: blockBlurRadius > 0 ? gaussianBlur(work, width, height, blockBlurRadius) : work,
-  };
 }
 
 let gpuImageProcessor = null;
@@ -5311,10 +6998,15 @@ function gpuRenderBlur(gpu, radius) {
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }
 
-function gpuReadRGB(gpu, width, height) {
+function gpuReadRGBA(gpu, width, height) {
   const gl = gpu.gl;
   const rgba = new Float32Array(width * height * 4);
   gl.readPixels(0, 0, width, height, gl.RGBA, gl.FLOAT, rgba);
+  return rgba;
+}
+
+function gpuReadRGB(gpu, width, height) {
+  const rgba = gpuReadRGBA(gpu, width, height);
   const rgb = new Float32Array(width * height * 3);
   for (let i = 0, j = 0; i < width * height; i++, j += 3) {
     const si = i * 4;
@@ -5325,19 +7017,108 @@ function gpuReadRGB(gpu, width, height) {
   return rgb;
 }
 
-function gpuProcessLinear(gpu, linearRGBA, width, height, adjustments, blockBlurRadius) {
+// GPU read stage setup: fence the current framebuffer work and poll without blocking.
+function pipelineBeginGPURead(id, gpu, fbo, width, height, format, onDoneStage, onErrorStage) {
+  if (!pipelineIsCurrent(id)) return;
   const gl = gpu.gl;
-  gpuRenderAdjustedLinear(gpu, linearRGBA, width, height, adjustments, false, false, "work");
-  gl.bindFramebuffer(gl.FRAMEBUFFER, gpu.workFbo);
-  const work = gpuReadRGB(gpu, width, height);
-  let blockWork = work;
-  if (blockBlurRadius > 0) {
-    gpuRenderBlur(gpu, blockBlurRadius);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, gpu.blurFbo);
-    blockWork = gpuReadRGB(gpu, width, height);
+  const read = {
+    id,
+    gpu,
+    fbo,
+    width,
+    height,
+    format,
+    onDoneStage,
+    onErrorStage,
+    sync: null,
+  };
+  conversionPipelineState.gpuRead = read;
+  if (!gl.fenceSync || !gl.clientWaitSync) {
+    pipelineSchedule(pipelineStageGPUReadNoFence, id);
+    return;
   }
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  return { work, blockWork };
+  try {
+    read.sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+    if (!read.sync) throw new Error("WebGL fence creation failed");
+    gl.flush();
+    pipelineSchedule(pipelineStageGPUReadPoll, id);
+  } catch (err) {
+    if (read.sync) gl.deleteSync(read.sync);
+    conversionPipelineState.gpuRead = null;
+    onErrorStage(id, err);
+  }
+}
+
+// GPU read fallback: yield once before readback when sync objects are unavailable.
+function pipelineStageGPUReadNoFence(id) {
+  if (!pipelineIsCurrent(id)) return;
+  conversionPipelineState.scheduledTimeout = undefined;
+  pipelineStageGPUReadFinish(id);
+}
+
+// GPU read poll: check whether the fenced rendering finished without stalling.
+function pipelineStageGPUReadPoll(id) {
+  if (!pipelineIsCurrent(id)) {
+    pipelineCancelPendingGPURead(id);
+    return;
+  }
+  const state = conversionPipelineState;
+  state.scheduledTimeout = undefined;
+  const read = state.gpuRead;
+  if (!read) return;
+  const gl = read.gpu.gl;
+  const status = gl.clientWaitSync(read.sync, 0, 0);
+  if (status === gl.TIMEOUT_EXPIRED) {
+    pipelineSchedule(pipelineStageGPUReadPoll, id);
+    return;
+  }
+  gl.deleteSync(read.sync);
+  read.sync = null;
+  if (status === gl.WAIT_FAILED) {
+    pipelineStageGPUReadFailed(id, new Error("WebGL sync wait failed"));
+    return;
+  }
+  pipelineStageGPUReadFinish(id);
+}
+
+// GPU read finish: perform the actual readPixels only after the fence is ready.
+function pipelineStageGPUReadFinish(id) {
+  if (!pipelineIsCurrent(id)) return;
+  const state = conversionPipelineState;
+  const read = state.gpuRead;
+  if (!read) return;
+  state.gpuRead = null;
+  let result = null;
+  try {
+    const gl = read.gpu.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, read.fbo);
+    const pixels = read.format === "rgba"
+      ? gpuReadRGBA(read.gpu, read.width, read.height)
+      : gpuReadRGB(read.gpu, read.width, read.height);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    result = { pixels, width: read.width, height: read.height, format: read.format };
+  } catch (err) {
+    pipelineStageGPUReadFailedWithHandler(id, read.onErrorStage, err);
+    return;
+  }
+  read.onDoneStage(id, result);
+}
+
+// GPU read failure: route the failure back to the stage-specific fallback handler.
+function pipelineStageGPUReadFailed(id, err) {
+  if (!pipelineIsCurrent(id)) return;
+  const read = conversionPipelineState.gpuRead;
+  conversionPipelineState.gpuRead = null;
+  if (read) read.onErrorStage(id, err);
+}
+
+function pipelineStageGPUReadFailedWithHandler(id, onErrorStage, err) {
+  if (!pipelineIsCurrent(id)) return;
+  try {
+    const gpu = conversionPipelineState.gpuProcessor;
+    if (gpu) gpu.gl.bindFramebuffer(gpu.gl.FRAMEBUFFER, null);
+  } catch (_) {}
+  onErrorStage(id, err);
 }
 
 const GPU_QUAD_VERT_GLSL = `#version 300 es
@@ -6312,21 +8093,19 @@ function hilbertOrder(W, H) {
 // combined inside the block to match overall average color of the block.
 // It simulates using an ideal dithering using two colors to match the
 // block most accurately without doing any particular dithering.
-function getBestWeightedColorPair(out, pixels, bx, by, bw, bh, palette, colorMask) {
+function getBestWeightedColorPair(out, pixels, width, bx, by, bw, bh, palette, colorMask) {
   const numPixels = bh * bw;
 
   let sumR = 0, sumG = 0, sumB = 0;
   for (let py = 0; py < bh; py++) {
     for (let px = 0; px < bw; px++) {
-      const i = ((by + py) * screenWidth + bx + px) * 3;
+      const i = ((by + py) * width + bx + px) * 3;
       sumR += pixels[i];
       sumG += pixels[i + 1];
       sumB += pixels[i + 2];
     }
   }
-  const avgColor = [sumR / numPixels, sumG / numPixels, sumB / numPixels];
-
-  const color = [0, 0, 0];
+  const avgR = sumR / numPixels, avgG = sumG / numPixels, avgB = sumB / numPixels;
   let bestInk = 0;
   let bestPaper = 0;
   let bestError = Infinity;
@@ -6338,10 +8117,10 @@ function getBestWeightedColorPair(out, pixels, bx, by, bw, bh, palette, colorMas
         const t = i / (numPixels - 1);
         const paperColor = palette[paper];
         const inkColor = palette[ink];
-        color[0] = inkColor[0] + t * (paperColor[0] - inkColor[0]);
-        color[1] = inkColor[1] + t * (paperColor[1] - inkColor[1]);
-        color[2] = inkColor[2] + t * (paperColor[2] - inkColor[2]);
-        const err = colorDist(color, avgColor);
+        const r = inkColor[0] + t * (paperColor[0] - inkColor[0]);
+        const g = inkColor[1] + t * (paperColor[1] - inkColor[1]);
+        const b = inkColor[2] + t * (paperColor[2] - inkColor[2]);
+        const err = colorDistValues(r, g, b, avgR, avgG, avgB);
         if (err < bestError) {
           bestPaper = paper;
           bestInk = ink;
