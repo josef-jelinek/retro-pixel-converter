@@ -622,10 +622,10 @@ svg {
   background: var(--surface);
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
 }
-.color-picker-main:has(.color-picker-switch:checked) .color-picker-dialog {
+.color-picker-main:has(.color-picker-switch:checked:not(:disabled)) .color-picker-dialog {
   display: grid;
 }
-.color-picker-main:has(.color-picker-switch:checked) .color-picker-backdrop {
+.color-picker-main:has(.color-picker-switch:checked:not(:disabled)) .color-picker-backdrop {
   display: block;
 }
 .color-picker-main > label {
@@ -733,30 +733,26 @@ svg {
   margin-left: auto;
 }
 
-/* Hide advanced-only groups by default */
+/* Hide advanced controls unless both advanced mode and the control's own mode gate allow them. */
 .sidebar .advanced-only { display: none !important; }
-.sidebar.show-advanced .advanced-only { display: flex !important; }
-/* dividers adjacent to advanced groups */
-.sidebar .divider.advanced-only { display: none !important; }
-.sidebar.show-advanced .divider.advanced-only { display: block !important; }
+.sidebar.show-advanced .advanced-only:not([data-control-visible="0"]) { display: flex !important; }
 
 /* Auto recommendation badge */
 .auto-badge {
   font-size: 0.72rem;
-  padding: 6px 8px;
+  padding: 8px 10px;
   background: rgba(0, 205, 205, 0.08);
   border: 1px solid rgba(0, 205, 205, 0.3);
   border-radius: var(--radius);
   color: var(--text);
   line-height: 1.35;
 }
-.auto-badge .auto-label {
-  color: var(--accent2);
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  font-size: 0.68rem;
-  margin-right: 4px;
+.auto-badge .auto-switch {
+  font-size: 0.72rem;
+}
+.auto-badge .auto-config {
+  display: block;
+  margin-top: 4px;
 }
 .auto-badge .auto-detect {
   display: block;
@@ -764,10 +760,6 @@ svg {
   font-size: 0.68rem;
   margin-top: 2px;
 }
-
-/* Hide palette interactivity in basic view */
-.sidebar:not(.show-advanced) .palette-strip .swatch { cursor: default; }
-.sidebar:not(.show-advanced) #paletteDisableRow { display: none !important; }
 
 /* Palette reference strip */
 .palette-strip {
@@ -781,7 +773,7 @@ svg {
   height: 18px;
   border-radius: 4px;
   border: 1px solid var(--border);
-  cursor: pointer;
+  cursor: default;
   position: relative;
 }
 .palette-strip .swatch.disabled {
@@ -823,8 +815,12 @@ svg {
       </svg>
     </div>
 
-    <div id="autoBadge" class="auto-badge" style="display: none">
-      <span class="auto-label">Auto:</span><span id="autoBadgeText">—</span>
+    <div id="autoBadge" class="auto-badge">
+      <label class="switch auto-switch">
+        <input id="autoDetectToggle" type="checkbox" checked>
+        Autodetect
+      </label>
+      <span id="autoBadgeText" class="auto-config"></span>
       <span id="autoBadgeDetect" class="auto-detect"></span>
     </div>
 
@@ -924,7 +920,7 @@ svg {
       </select>
     </div>
 
-    <div class="control-group advanced-only">
+    <div id="ditherModeGroup" class="control-group advanced-only" style="display: none">
       <h3>Dithering</h3>
       <select id="ditherMode">
         <option value="floyd-steinberg">Floyd-Steinberg</option>
@@ -943,7 +939,7 @@ svg {
       </select>
     </div>
 
-    <div id="colorStrategyGroup" class="control-group advanced-only">
+    <div id="colorStrategyGroup" class="control-group advanced-only" style="display: none">
       <h3>Color Strategy</h3>
       <select id="colorStrategy">
         <option value="weighted-average" selected>Weighted average pair fit</option>
@@ -953,26 +949,26 @@ svg {
       </select>
     </div>
 
-    <div class="control-group advanced-only">
-      <label class="switch switch-row">
+    <div id="conversionOptionsGroup" class="control-group advanced-only" style="display: none">
+      <label id="showGridRow" class="switch switch-row">
         <input id="showGrid" type="checkbox">
-        Show attribute grid
+        Show block grid
       </label>
-      <label class="switch switch-row">
+      <label id="oklabDistRow" class="switch switch-row">
         <input id="oklabDist" type="checkbox">
         OkLab color distance (slower, experimental)
       </label>
-      <label class="switch switch-row">
+      <label id="serpentineRow" class="switch switch-row">
         <input id="serpentine" type="checkbox" checked>
         Serpentine scanning (error diffusion)
       </label>
-      <label class="switch switch-row">
+      <label id="gaussSeidelRow" class="switch switch-row">
         <input id="gaussSeidel" type="checkbox">
         Gauss-Seidel refinement (slow)
       </label>
     </div>
 
-    <div class="control-group advanced-only">
+    <div id="blockBlurGroup" class="control-group advanced-only" style="display: none">
       <h3>Block Gaussian pre-blur</h3>
       <label class="range">
         <span class="range-label">Gaussian radius</span>
@@ -1017,7 +1013,7 @@ svg {
       </div>
     </div>
 
-    <div class="control-group advanced-only">
+    <div class="control-group advanced-only" style="display: none">
       <h3>Profile</h3>
       <div class="export-row">
         <button id="exportProfileBtn" class="btn-secondary">Export</button>
@@ -1180,12 +1176,12 @@ svg {
             <input id="crtBloomSlider" type="range" min="0.0" max="3.0" step="0.1" value="0.4">
             <span id="crtBloomText" class="range-val">0.4</span>
           </label>
-          <label class="range">
+          <label id="crtBloomSpreadRow" class="range">
             <span class="range-label">Bloom spread</span>
             <input id="crtBloomSpreadSlider" type="range" min="0.0" max="3.0" step="0.1" value="1.0">
             <span id="crtBloomSpreadText" class="range-val">1.0</span>
           </label>
-          <label class="range">
+          <label id="crtBloomThresholdRow" class="range">
             <span class="range-label">Bloom threshold</span>
             <input id="crtBloomThresholdSlider" type="range" min="0.00" max="2.00" step="0.05" value="0.40">
             <span id="crtBloomThresholdText" class="range-val">0.40</span>
@@ -1346,12 +1342,12 @@ function atariYiqColor(hue, luma) {
   // Hue angle around NTSC color wheel: hue 1 ~= gold, cycling around.
   const angle = ((hue - 1) * 360 / 15 + 339) * Math.PI / 180;
   const sat = 0.42;
-  const I = sat * Math.cos(angle);
-  const Q = sat * Math.sin(angle);
+  const iSignal = sat * Math.cos(angle);
+  const qSignal = sat * Math.sin(angle);
   return byteColor(
-    luma + 0.956 * I + 0.621 * Q,
-    luma - 0.272 * I - 0.647 * Q,
-    luma - 1.106 * I + 1.703 * Q
+    luma + 0.956 * iSignal + 0.621 * qSignal,
+    luma - 0.272 * iSignal - 0.647 * qSignal,
+    luma - 1.106 * iSignal + 1.703 * qSignal
   );
 }
 
@@ -1376,12 +1372,12 @@ function buildAtariLumaPalettes() {
   return palettes;
 }
 
-const PALETTE_ATARI = buildAtariPalette();
-const PALETTE_ATARI_LUMA = buildAtariLumaPalettes();
+const paletteAtari = buildAtariPalette();
+const paletteAtariLuma = buildAtariLumaPalettes();
 
 function atariLumaPalette(hue) {
   const index = Number.isFinite(hue) ? Math.max(0, Math.min(15, hue | 0)) : 0;
-  return PALETTE_ATARI_LUMA[index];
+  return paletteAtariLuma[index];
 }
 
 const PALETTE_PICO8 = [
@@ -1449,12 +1445,12 @@ const BAYER4 = [
   [15,  7, 13,  5],
 ];
 // Normalized to [0, 1)
-const BAYER4_01 = new Array(BAYER4.length);
+const bayer4Thresholds = new Array(BAYER4.length);
 for (let y = 0; y < BAYER4.length; y++) {
   const row = BAYER4[y];
   const out = new Float32Array(row.length);
   for (let x = 0; x < row.length; x++) out[x] = (row[x] + 0.5) / 16;
-  BAYER4_01[y] = out;
+  bayer4Thresholds[y] = out;
 }
 
 // --- Bayer 8x8 ordered dither threshold matrix ---
@@ -1469,12 +1465,12 @@ const BAYER8 = [
   [15, 47,  7, 39, 13, 45,  5, 37],
   [63, 31, 55, 23, 61, 29, 53, 21],
 ];
-const BAYER8_01 = new Array(BAYER8.length);
+const bayer8Thresholds = new Array(BAYER8.length);
 for (let y = 0; y < BAYER8.length; y++) {
   const row = BAYER8[y];
   const out = new Float32Array(row.length);
   for (let x = 0; x < row.length; x++) out[x] = (row[x] + 0.5) / 64;
-  BAYER8_01[y] = out;
+  bayer8Thresholds[y] = out;
 }
 
 // --- Clustered-dot 8x8 halftone matrix ---
@@ -1489,12 +1485,12 @@ const CLUSTERED8 = [
   [42, 56, 62, 52, 23,  7,  5, 17],
   [32, 40, 54, 38, 31, 21, 19, 29],
 ];
-const CLUSTERED8_01 = new Array(CLUSTERED8.length);
+const clustered8Thresholds = new Array(CLUSTERED8.length);
 for (let y = 0; y < CLUSTERED8.length; y++) {
   const row = CLUSTERED8[y];
   const out = new Float32Array(row.length);
   for (let x = 0; x < row.length; x++) out[x] = (row[x] + 0.5) / 64;
-  CLUSTERED8_01[y] = out;
+  clustered8Thresholds[y] = out;
 }
 
 // --- Threshold-based dither helpers ---
@@ -1505,9 +1501,9 @@ function blueNoiseThreshold(x, y) {
 }
 
 function getThreshold(mode, x, y) {
-  if (mode === "ordered" || mode === "yliluoma") return BAYER4_01[y & 3][x & 3];
-  if (mode === "ordered8") return BAYER8_01[y & 7][x & 7];
-  if (mode === "halftone") return CLUSTERED8_01[y & 7][x & 7];
+  if (mode === "ordered" || mode === "yliluoma") return bayer4Thresholds[y & 3][x & 3];
+  if (mode === "ordered8") return bayer8Thresholds[y & 7][x & 7];
+  if (mode === "halftone") return clustered8Thresholds[y & 7][x & 7];
   if (mode === "blue-noise") return blueNoiseThreshold(x, y);
   return 0.5;
 }
@@ -1559,16 +1555,24 @@ function yliluomaLiteChooseWeightedRgb(r, g, b, colors, threshold) {
   for (let i = 0; i < colors.length; i++) {
     const color = colors[i];
     const d = colorDistWeightedRgb(r, g, b, color[0], color[1], color[2]);
-    if (d < d0) { d1 = d0; i1 = i0; d0 = d; i0 = i; }
-    else if (d < d1) { d1 = d; i1 = i; }
+    if (d < d0) {
+      d1 = d0;
+      i1 = i0;
+      d0 = d;
+      i0 = i;
+    } else if (d < d1) {
+      d1 = d;
+      i1 = i;
+    }
   }
   const c0 = colors[i0], c1 = colors[i1];
   // Projection blend factor (same math as Yliluoma N=2 path)
   const dr = c1[0] - c0[0], dg = c1[1] - c0[1], db = c1[2] - c0[2];
   const denom = dr * dr + dg * dg + db * db;
   let t;
-  if (denom < 1e-6) t = 0;
-  else {
+  if (denom < 1e-6) {
+    t = 0;
+  } else {
     t = ((r - c0[0]) * dr + (g - c0[1]) * dg + (b - c0[2]) * db) / denom;
     if (t < 0) t = 0; else if (t > 1) t = 1;
   }
@@ -1581,16 +1585,24 @@ function yliluomaLiteChooseOklab(r, g, b, colors, threshold) {
   for (let i = 0; i < colors.length; i++) {
     const color = colors[i];
     const d = colorDistOklab(r, g, b, color[0], color[1], color[2]);
-    if (d < d0) { d1 = d0; i1 = i0; d0 = d; i0 = i; }
-    else if (d < d1) { d1 = d; i1 = i; }
+    if (d < d0) {
+      d1 = d0;
+      i1 = i0;
+      d0 = d;
+      i0 = i;
+    } else if (d < d1) {
+      d1 = d;
+      i1 = i;
+    }
   }
   const c0 = colors[i0], c1 = colors[i1];
   // Projection blend factor (same math as Yliluoma N=2 path)
   const dr = c1[0] - c0[0], dg = c1[1] - c0[1], db = c1[2] - c0[2];
   const denom = dr * dr + dg * dg + db * db;
   let t;
-  if (denom < 1e-6) t = 0;
-  else {
+  if (denom < 1e-6) {
+    t = 0;
+  } else {
     t = ((r - c0[0]) * dr + (g - c0[1]) * dg + (b - c0[2]) * db) / denom;
     if (t < 0) t = 0; else if (t > 1) t = 1;
   }
@@ -1683,10 +1695,10 @@ const ZX81_GLYPH_ROWS = [
   [0x00, 0x7E, 0x04, 0x08, 0x10, 0x20, 0x7E, 0x00],
 ];
 
-const ZX81_FIT_COUNTS = new Int32Array([1, 4, 16, 64]);
-const ZX81_FIT_WEIGHTS = new Float32Array([1, 1, 1, 1]);
+const zx81FitCounts = new Int32Array([1, 4, 16, 64]);
+const zx81FitWeights = new Float32Array([1, 1, 1, 1]);
 
-const MODES = {
+const modes = {
   standard: {
     w: 256, h: 192,
     border: { left: 32, right: 32, top: 24, bottom: 24 },
@@ -1801,7 +1813,7 @@ const MODES = {
     w: 160, h: 192,
     border: { left: 8, right: 8, top: 24, bottom: 24 },
     blockW: 160, blockH: 192, colorsPerBlock: 4,
-    palettes: [PALETTE_ATARI],
+    palettes: [paletteAtari],
     mandatoryColor: null,
     searchStrategy: "global-prequantize",
     colorful: true, label: "atari-gr15",
@@ -1811,7 +1823,7 @@ const MODES = {
     w: 320, h: 192,
     border: { left: 16, right: 16, top: 24, bottom: 24 },
     blockW: 320, blockH: 192, colorsPerBlock: 2,
-    palettes: [PALETTE_ATARI],
+    palettes: [paletteAtari],
     mandatoryColor: null,
     searchStrategy: "user-picked",
     colorful: false, label: "atari-gr8",
@@ -1859,13 +1871,13 @@ const MODES = {
   },
 };
 
-const PALETTES = {};
-for (const key in MODES) {
-  PALETTES[key] = srgbToLinearPalettes(MODES[key].palettes);
+const palettes = {};
+for (const key in modes) {
+  palettes[key] = srgbToLinearPalettes(modes[key].palettes);
 }
-const PALETTE_ATARI_LUMA_LINEAR = new Array(PALETTE_ATARI_LUMA.length);
-for (let hue = 0; hue < PALETTE_ATARI_LUMA.length; hue++) {
-  PALETTE_ATARI_LUMA_LINEAR[hue] = srgbToLinearPalette(PALETTE_ATARI_LUMA[hue]);
+const paletteAtariLumaLinear = new Array(paletteAtariLuma.length);
+for (let hue = 0; hue < paletteAtariLuma.length; hue++) {
+  paletteAtariLumaLinear[hue] = srgbToLinearPalette(paletteAtariLuma[hue]);
 }
 
 function getModeBorder(modeCfg) {
@@ -1910,7 +1922,7 @@ let fullscreenCanvasKind = null; // null | 'input-webgl' | 'output-webgl'
 let outputViewMode = "active"; // 'active' | 'saved'
 let abSnapshot = null;        // { pixels: Float32Array linear RGB, w, h, mode, modeCfg, displayAspect, outScale }
 
-// Custom modes registered via import — merged into MODES at runtime.
+// Custom modes registered via import — merged into modes at runtime.
 const customModeNames = new Set();
 const CUSTOM_MODE_REQUIRED_FIELDS = ["w", "h", "blockW", "blockH", "colorsPerBlock", "palettes", "searchStrategy", "label", "ext"];
 
@@ -1931,7 +1943,9 @@ const UI = {
   autoBadge: byId("autoBadge"),
   autoBadgeDetect: byId("autoBadgeDetect"),
   autoBadgeText: byId("autoBadgeText"),
+  autoDetectToggle: byId("autoDetectToggle"),
   blockBlur: byId("blockBlur"),
+  blockBlurGroup: byId("blockBlurGroup"),
   blockBlurVal: byId("blockBlurVal"),
   brightness: byId("brightness"),
   brightnessVal: byId("brightnessVal"),
@@ -1940,6 +1954,7 @@ const UI = {
   canvasSplitDivider: byId("canvasSplitDivider"),
   colorStrategy: byId("colorStrategy"),
   colorStrategyGroup: byId("colorStrategyGroup"),
+  conversionOptionsGroup: byId("conversionOptionsGroup"),
   contrast: byId("contrast"),
   contrastVal: byId("contrastVal"),
   convertedCanvas: byId("outputCanvas"),
@@ -1956,9 +1971,11 @@ const UI = {
   crtBleedSlider: byId("crtBleedSlider"),
   crtBleedText: byId("crtBleedText"),
   crtBloomSlider: byId("crtBloomSlider"),
+  crtBloomSpreadRow: byId("crtBloomSpreadRow"),
   crtBloomSpreadSlider: byId("crtBloomSpreadSlider"),
   crtBloomSpreadText: byId("crtBloomSpreadText"),
   crtBloomText: byId("crtBloomText"),
+  crtBloomThresholdRow: byId("crtBloomThresholdRow"),
   crtBloomThresholdSlider: byId("crtBloomThresholdSlider"),
   crtBloomThresholdText: byId("crtBloomThresholdText"),
   crtBorderButton: byId("crtBorderButton"),
@@ -1979,6 +1996,7 @@ const UI = {
   crtVignetteText: byId("crtVignetteText"),
   displayMode: byId("displayMode"),
   ditherMode: byId("ditherMode"),
+  ditherModeGroup: byId("ditherModeGroup"),
   dropZone: byId("dropZone"),
   exportBin: byId("exportBin"),
   exportJpg1x: byId("exportJpg1x"),
@@ -1998,6 +2016,7 @@ const UI = {
   gamma: byId("gamma"),
   gammaVal: byId("gammaVal"),
   gaussSeidel: byId("gaussSeidel"),
+  gaussSeidelRow: byId("gaussSeidelRow"),
   hiresBright: byId("hiresBright"),
   hiresColorsGroup: byId("hiresColorsGroup"),
   hiresPair: byId("hiresPair"),
@@ -2011,6 +2030,7 @@ const UI = {
   lockAspect: byId("lockAspect"),
   modesFileInput: byId("modesFileInput"),
   oklabDist: byId("oklabDist"),
+  oklabDistRow: byId("oklabDistRow"),
   originalCanvas: byId("originalCanvas"),
   outputGridCanvas: byId("outputGridCanvas"),
   outputGenerationOverlay: byId("outputGenerationOverlay"),
@@ -2027,7 +2047,9 @@ const UI = {
   scaleSlider: byId("scaleSlider"),
   scaleText: byId("scaleText"),
   serpentine: byId("serpentine"),
+  serpentineRow: byId("serpentineRow"),
   showGrid: byId("showGrid"),
+  showGridRow: byId("showGridRow"),
   sidebar: byId("sidebar"),
   snapshotBtn: byId("snapshotBtn"),
   statusSize: byId("statusSize"),
@@ -2045,7 +2067,7 @@ function initAtariGr8ColorControls() {
     for (let i = 0; i < ATARI_HUE_NAMES.length; i++) {
       const option = document.createElement("option");
       option.value = String(i);
-      option.textContent = i + " - " + ATARI_HUE_NAMES[i];
+      option.textContent = `${i} - ${ATARI_HUE_NAMES[i]}`;
       if (i === 0) option.selected = true;
       select.appendChild(option);
     }
@@ -2061,7 +2083,7 @@ function updateAtariGr8LumaLabels() {
   UI.atariGr8BgLumaVal.textContent = UI.atariGr8BgLuma.value;
 }
 
-function disabledKey(pIdx, cIdx) { return pIdx + ":" + cIdx; }
+function disabledKey(pIdx, cIdx) { return `${pIdx}:${cIdx}`; }
 
 function isColorDisabled(mode, pIdx, cIdx) {
   const set = disabledColors[mode];
@@ -2069,7 +2091,7 @@ function isColorDisabled(mode, pIdx, cIdx) {
 }
 
 function enabledColorMasks(mode) {
-  const cfg = MODES[mode] ?? MODES.standard;
+  const cfg = modes[mode] ?? modes.standard;
   if (mode === "atari-gr9") {
     const mask = new Uint8Array(16);
     for (let cIdx = 0; cIdx < 16; cIdx++) mask[cIdx] = isColorDisabled(mode, 0, cIdx) ? 0 : 1;
@@ -2118,12 +2140,12 @@ function buildZXCandidatePairs(colorMasks, requireDistinct) {
 }
 
 function paletteStripEntries(mode) {
-  const cfg = MODES[mode] ?? MODES.standard;
+  const cfg = modes[mode] ?? modes.standard;
   if (mode === "atari-gr9") {
     const hue = parseInt((UI.atariHue && UI.atariHue.value) || "0", 10);
     const pal = atariLumaPalette(hue);
     const out = new Array(pal.length);
-    for (let i = 0; i < pal.length; i++) out[i] = { rgb: pal[i], pIdx: 0, cIdx: i, label: "L" + i };
+    for (let i = 0; i < pal.length; i++) out[i] = { rgb: pal[i], pIdx: 0, cIdx: i, label: `L${i}` };
     return out;
   }
   if (mode === "atari-gr15") {
@@ -2134,7 +2156,7 @@ function paletteStripEntries(mode) {
     for (let h = 0; h < 16; h++) {
       for (let l = 1; l < 8; l += 2) {
         const idx = h * 8 + l;
-        out[o++] = { rgb: pal[idx], pIdx: 0, cIdx: idx, label: "H" + h + " L" + l };
+        out[o++] = { rgb: pal[idx], pIdx: 0, cIdx: idx, label: `H${h} L${l}` };
       }
     }
     return out;
@@ -2146,7 +2168,7 @@ function paletteStripEntries(mode) {
   for (let p = 0; p < cfg.palettes.length; p++) {
     const pal = cfg.palettes[p];
     for (let i = 0; i < pal.length; i++) {
-      out[o++] = { rgb: pal[i], pIdx: p, cIdx: i, label: "P" + p + "." + i };
+      out[o++] = { rgb: pal[i], pIdx: p, cIdx: i, label: `P${p}.${i}` };
     }
   }
   return out;
@@ -2165,19 +2187,24 @@ function initPaletteStrip() {
   }
   const entries = paletteStripEntries(mode);
   const disableable = !(mode === "hires" || mode === "ql-mode4" || isZX81Mode(mode));
+  const canToggle = disableable && UI.advancedToggle && UI.advancedToggle.checked;
   for (const e of entries) {
     const d = document.createElement("div");
     d.className = "swatch";
     if (isColorDisabled(mode, e.pIdx, e.cIdx)) d.classList.add("disabled");
-    d.style.background = "rgb(" + e.rgb[0] + "," + e.rgb[1] + "," + e.rgb[2] + ")";
-    d.title = e.label + " — RGB(" + e.rgb[0] + ", " + e.rgb[1] + ", " + e.rgb[2] + ")" +
-              (disableable ? " (click to toggle)" : "");
-    if (disableable) {
+    d.style.background = `rgb(${e.rgb[0]},${e.rgb[1]},${e.rgb[2]})`;
+    if (canToggle) d.style.cursor = "pointer";
+    d.title = `${e.label} — RGB(${e.rgb[0]}, ${e.rgb[1]}, ${e.rgb[2]})` +
+              (canToggle ? " (click to toggle)" : "");
+    if (canToggle) {
       d.addEventListener("click", () => {
         if (!disabledColors[mode]) disabledColors[mode] = new Set();
         const key = disabledKey(e.pIdx, e.cIdx);
-        if (disabledColors[mode].has(key)) disabledColors[mode].delete(key);
-        else disabledColors[mode].add(key);
+        if (disabledColors[mode].has(key)) {
+          disabledColors[mode].delete(key);
+        } else {
+          disabledColors[mode].add(key);
+        }
         d.classList.toggle("disabled");
         if (sourceImage) convert();
       });
@@ -2185,13 +2212,13 @@ function initPaletteStrip() {
     strip.appendChild(d);
   }
   const helperRow = UI.paletteDisableRow;
-  if (helperRow) helperRow.style.display = disableable ? "" : "none";
+  if (helperRow) helperRow.style.display = canToggle ? "" : "none";
 }
 initPaletteStrip();
 
 // --- Input panel crop-fill color control ---
 const cropFillColor = { r: 0, g: 0, b: 0 };
-const CROP_OVERLAY_COLOR = new Float32Array([0, 0.8039, 0.8039, 1]);
+const cropOverlayColor = new Float32Array([0, 0.8039, 0.8039, 1]);
 
 function clampByte(value) {
   return Math.max(0, Math.min(255, Number.isFinite(value) ? Math.round(value) : 0));
@@ -2235,7 +2262,10 @@ UI.browseBtn.addEventListener("click", () => UI.fileInput.click());
 UI.loadNewBtn.addEventListener("click", () => UI.fileInput.click());
 UI.fileInput.addEventListener("change", e => { if (e.target.files[0]) loadImage(e.target.files[0]); });
 
-UI.dropZone.addEventListener("dragover", e => { e.preventDefault(); UI.dropZone.classList.add("active"); });
+UI.dropZone.addEventListener("dragover", e => {
+  e.preventDefault();
+  UI.dropZone.classList.add("active");
+});
 UI.dropZone.addEventListener("dragleave", () => UI.dropZone.classList.remove("active"));
 UI.dropZone.addEventListener("drop", e => {
   e.preventDefault();
@@ -2383,11 +2413,16 @@ function pipelineStageSourceImageDecoded(id, readResult) {
   UI.dropZone.style.display = "none";
   UI.inputToolbar.style.display = "";
   UI.inputControls.style.display = "";
-  // Fresh image: clear user-override flags, analyze, then apply recommendation.
+  // Fresh image: clear user-override flags, then analyze/apply only when autodetect is enabled.
   userOverride.ditherMode = false;
   userOverride.colorStrategy = false;
-  lastImageAnalysis = analyzeImage(img);
-  applyRecommendation();
+  if (autoDetectEnabled()) {
+    lastImageAnalysis = analyzeImage(img);
+    applyRecommendation();
+  } else {
+    lastImageAnalysis = null;
+    updateAutoBadge(null, null);
+  }
   renderCropOverlay();
   convert();
 }
@@ -2403,8 +2438,8 @@ let analyzeScaledLinear = null;
 const analyzeBins = new Uint8Array(4096);
 
 function analyzeImage(img) {
-  const MAX = 256;
-  const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+  const maxAnalysisSize = 256;
+  const scale = Math.min(1, maxAnalysisSize / Math.max(img.width, img.height));
   const w = Math.max(1, Math.round(img.width * scale));
   const h = Math.max(1, Math.round(img.height * scale));
   if (sourceImageLinear) {
@@ -2469,12 +2504,15 @@ function analyzeImageLinearSamples(w, h, pixels) {
   const sat = n ? satSum / n : 0;
   const luma = n ? lumaSum / n : 0.5;
   const edge = edgeN ? edgeSum / edgeN : 0;
-  const GRAY_SAT_THRESHOLD = 0.12;
-  const LINEART_EDGE_THRESHOLD = 0.22;
-  const LINEART_UNIQUE_THRESHOLD = 60;
+  const graySatThreshold = 0.12;
+  const lineartEdgeThreshold = 0.22;
+  const lineartUniqueThreshold = 60;
   let klass = "photo";
-  if (sat < GRAY_SAT_THRESHOLD) klass = "gray";
-  else if (edge > LINEART_EDGE_THRESHOLD && uniqueApprox < LINEART_UNIQUE_THRESHOLD) klass = "lineart";
+  if (sat < graySatThreshold) {
+    klass = "gray";
+  } else if (edge > lineartEdgeThreshold && uniqueApprox < lineartUniqueThreshold) {
+    klass = "lineart";
+  }
   return { sat, luma, uniqueApprox, edge, klass };
 }
 
@@ -2525,18 +2563,42 @@ function recommendSettings(analysis, mode) {
   return { dither, strategy };
 }
 
+function autoDetectEnabled() {
+  return UI.autoDetectToggle && UI.autoDetectToggle.checked;
+}
+
 function updateAutoBadge(rec, analysis) {
-  const badge = UI.autoBadge;
   const txt = UI.autoBadgeText;
   const det = UI.autoBadgeDetect;
-  if (!badge || !txt) return;
-  if (!rec || !analysis) { badge.style.display = "none"; return; }
-  badge.style.display = "";
-  txt.textContent = ` ${ditherLabel(rec.dither)} + ${strategyLabel(rec.strategy)}`;
-  det.textContent = `detected: ${classLabel(analysis.klass)}`;
+  if (!txt) return;
+  if (!autoDetectEnabled() || !rec || !analysis) {
+    txt.style.display = "none";
+    txt.textContent = "";
+    if (det) {
+      det.style.display = "none";
+      det.textContent = "";
+    }
+    return;
+  }
+  txt.style.display = "";
+  const mode = UI.displayMode.value;
+  const cfg = modes[mode] ?? modes.standard;
+  const parts = [];
+  if (modeUsesDither(mode, cfg)) parts.push(ditherLabel(rec.dither));
+  if (allowedColorStrategiesForMode(mode, cfg).length) parts.push(strategyLabel(rec.strategy));
+  if (!parts.length) parts.push(cfg.searchStrategy === "zx81-character" ? "character matching" : cfg.label);
+  txt.textContent = parts.join(" + ");
+  if (det) {
+    det.style.display = "";
+    det.textContent = `detected: ${classLabel(analysis.klass)}`;
+  }
 }
 
 function applyRecommendation() {
+  if (!autoDetectEnabled()) {
+    updateAutoBadge(null, null);
+    return;
+  }
   if (!lastImageAnalysis) return;
   const mode = UI.displayMode.value;
   const rec = recommendSettings(lastImageAnalysis, mode);
@@ -2544,7 +2606,40 @@ function applyRecommendation() {
   // Respect user overrides — only set the control if the user hasn't changed it.
   if (!userOverride.ditherMode) UI.ditherMode.value = rec.dither;
   if (!userOverride.colorStrategy) UI.colorStrategy.value = rec.strategy;
+  updateModeUI();
 }
+
+function initAutoDetectToggle() {
+  const toggle = UI.autoDetectToggle;
+  if (!toggle) return;
+  const lsKey = "retroImg.autoDetect";
+  let enabled = true;
+  try {
+    const stored = localStorage.getItem(lsKey);
+    if (stored !== null) enabled = stored === "1";
+  } catch (_) {}
+  toggle.checked = enabled;
+  updateAutoBadge(null, null);
+  toggle.addEventListener("change", function () {
+    const on = toggle.checked;
+    try { localStorage.setItem(lsKey, on ? "1" : "0"); } catch (_) {}
+    if (!on) {
+      lastImageAnalysis = null;
+      updateAutoBadge(null, null);
+      return;
+    }
+    if (!sourceImage) {
+      updateAutoBadge(null, null);
+      return;
+    }
+    userOverride.ditherMode = false;
+    userOverride.colorStrategy = false;
+    lastImageAnalysis = analyzeImage(sourceImage);
+    applyRecommendation();
+    convert();
+  });
+}
+initAutoDetectToggle();
 
 // --- Crop overlay rendering ---
 function renderInputPreviewCanvas(canvas, width, height, scale, options = {}) {
@@ -2576,16 +2671,16 @@ function renderInputPreviewCanvas(canvas, width, height, scale, options = {}) {
   const ch = cropRect.h * scale;
 
   // Crop border
-  webglCanvasStrokeRect(renderer, cx + 0.5, cy + 0.5, Math.max(0, cw - 1), Math.max(0, ch - 1), 1, CROP_OVERLAY_COLOR);
+  webglCanvasStrokeRect(renderer, cx + 0.5, cy + 0.5, Math.max(0, cw - 1), Math.max(0, ch - 1), 1, cropOverlayColor);
 
   // Corner handles
   const hs = 8;
   const hx0 = cx - hs / 2, hx1 = cx + cw - hs / 2;
   const hy0 = cy - hs / 2, hy1 = cy + ch - hs / 2;
-  webglCanvasFillRect(renderer, hx0, hy0, hs, hs, CROP_OVERLAY_COLOR);
-  webglCanvasFillRect(renderer, hx1, hy0, hs, hs, CROP_OVERLAY_COLOR);
-  webglCanvasFillRect(renderer, hx0, hy1, hs, hs, CROP_OVERLAY_COLOR);
-  webglCanvasFillRect(renderer, hx1, hy1, hs, hs, CROP_OVERLAY_COLOR);
+  webglCanvasFillRect(renderer, hx0, hy0, hs, hs, cropOverlayColor);
+  webglCanvasFillRect(renderer, hx1, hy0, hs, hs, cropOverlayColor);
+  webglCanvasFillRect(renderer, hx0, hy1, hs, hs, cropOverlayColor);
+  webglCanvasFillRect(renderer, hx1, hy1, hs, hs, cropOverlayColor);
 }
 
 function renderCropOverlay() {
@@ -2667,9 +2762,15 @@ window.addEventListener("mousemove", e => {
       const south = m === "sw" || m === "se";
       const west = m === "nw" || m === "sw";
       const east = m === "ne" || m === "se";
-      if (north) { ny = dragState.startY + dy; nh = dragState.startH - dy; }
+      if (north) {
+        ny = dragState.startY + dy;
+        nh = dragState.startH - dy;
+      }
       if (south) nh = dragState.startH + dy;
-      if (west) { nx = dragState.startX + dx; nw = dragState.startW - dx; }
+      if (west) {
+        nx = dragState.startX + dx;
+        nw = dragState.startW - dx;
+      }
       if (east) nw = dragState.startW + dx;
       if (nw < 10) nw = 10;
       if (nh < 10) nh = 10;
@@ -2684,14 +2785,11 @@ window.addEventListener("mousemove", e => {
         const anchorBottom = dragState.startY + dragState.startH;
 
         // Start with aspect-constrained rect
-        if (nw / nh > targetAR) nh = nw / targetAR;
-        else nw = nh * targetAR;
+        if (nw / nh > targetAR) nh = nw / targetAR; else nw = nh * targetAR;
 
         // Position fixed anchor (opposite corner stays put)
-        if (west) nx = anchorRight - nw;
-        else nx = dragState.startX;
-        if (north) ny = anchorBottom - nh;
-        else ny = dragState.startY;
+        if (west) nx = anchorRight - nw; else nx = dragState.startX;
+        if (north) ny = anchorBottom - nh; else ny = dragState.startY;
 
         // Now check each edge against image bounds and if any overflows,
         // compute the largest size that fits AT this aspect and re-anchor.
@@ -2708,8 +2806,14 @@ window.addEventListener("mousemove", e => {
         if (north) ny = anchorBottom - nh; else ny = dragState.startY;
       } else {
         // Unlocked: just clamp to image bounds
-        if (nx < 0) { nw += nx; nx = 0; }
-        if (ny < 0) { nh += ny; ny = 0; }
+        if (nx < 0) {
+          nw += nx;
+          nx = 0;
+        }
+        if (ny < 0) {
+          nh += ny;
+          ny = 0;
+        }
         if (nx + nw > sourceImage.width)  nw = sourceImage.width  - nx;
         if (ny + nh > sourceImage.height) nh = sourceImage.height - ny;
       }
@@ -2770,6 +2874,7 @@ function handleSettingControlInput(id, control) {
     initPaletteStrip();
   } else if (id === "ditherMode") {
     userOverride.ditherMode = true;
+    updateModeUI();
   } else if (id === "colorStrategy") {
     userOverride.colorStrategy = true;
   }
@@ -2805,13 +2910,95 @@ bindSettingControl("serpentine", UI.serpentine);
 bindSettingControl("gaussSeidel", UI.gaussSeidel);
 bindSettingControl("blockBlur", UI.blockBlur);
 
+const ZX_EXHAUSTIVE_COLOR_STRATEGIES = ["weighted-average", "global", "per-block", "pca"];
+const C64_HIRES_COLOR_STRATEGIES = ["weighted-average", "per-block"];
+const ROW_DIFFUSION_DITHER_MODES = ["floyd-steinberg", "atkinson", "stucki", "jarvis", "burkes", "sierra-lite"];
+
+function isZXAttributeMode(mode) {
+  return mode === "standard" || mode === "ts-standard" || mode === "ecm";
+}
+
+function isC64HiresMode(mode) {
+  return mode === "c64-hires-ntsc" || mode === "c64-hires-pal";
+}
+
+function modeUsesDither(mode, cfg) {
+  return cfg.searchStrategy !== "zx81-character";
+}
+
+function modeSupportsGridOverlay(cfg) {
+  return cfg.blockW > 1 && (cfg.blockW < cfg.w || cfg.blockH < cfg.h);
+}
+
+function modeSupportsGaussSeidel(mode, cfg) {
+  return cfg.searchStrategy === "exhaustive" && isZXAttributeMode(mode);
+}
+
+function modeSupportsBlockBlur(cfg) {
+  return cfg.searchStrategy === "exhaustive" ||
+    cfg.searchStrategy === "global-prequantize" ||
+    cfg.searchStrategy === "zx81-character";
+}
+
+function allowedColorStrategiesForMode(mode, cfg) {
+  if (cfg.searchStrategy !== "exhaustive") return [];
+  if (isZXAttributeMode(mode)) return ZX_EXHAUSTIVE_COLOR_STRATEGIES;
+  if (isC64HiresMode(mode)) return C64_HIRES_COLOR_STRATEGIES;
+  return [];
+}
+
+function setControlVisible(element, visible) {
+  if (!element) return;
+  if (element.classList.contains("advanced-only")) {
+    element.dataset.controlVisible = visible ? "1" : "0";
+    element.style.display = "";
+  } else {
+    element.style.display = visible ? "" : "none";
+  }
+  const controls = element.querySelectorAll("input, select, textarea, button");
+  for (const control of controls) control.disabled = !visible;
+}
+
+function updateSelectAvailability(select, allowedValues) {
+  if (!select) return;
+  const allowed = new Set(allowedValues);
+  const hasAllowed = allowedValues.length > 0;
+  for (const option of select.options) {
+    const optionAllowed = allowed.has(option.value);
+    option.style.display = hasAllowed && !optionAllowed ? "none" : "";
+    option.disabled = hasAllowed && !optionAllowed;
+  }
+  if (hasAllowed && !allowed.has(select.value)) select.value = allowedValues[0];
+  select.disabled = !hasAllowed;
+}
+
 function updateModeUI() {
   const mode = UI.displayMode.value;
-  const cfg = MODES[mode] ?? MODES.standard;
-  UI.hiresColorsGroup.style.display = mode === "hires" ? "" : "none";
-  UI.atariGr8ColorsGroup.style.display = mode === "atari-gr8" ? "" : "none";
-  UI.colorStrategyGroup.style.display = cfg.searchStrategy === "exhaustive" ? "" : "none";
-  UI.atariHueGroup.style.display = mode === "atari-gr9" ? "" : "none";
+  const cfg = modes[mode] ?? modes.standard;
+  const usesDither = modeUsesDither(mode, cfg);
+  const colorStrategies = allowedColorStrategiesForMode(mode, cfg);
+  const showGrid = modeSupportsGridOverlay(cfg);
+  const showOklab = cfg.searchStrategy !== "zx81-character";
+  const showSerpentine = usesDither && ROW_DIFFUSION_DITHER_MODES.includes(UI.ditherMode.value);
+  const showGaussSeidel = modeSupportsGaussSeidel(mode, cfg);
+  const showBlockBlur = modeSupportsBlockBlur(cfg);
+
+  setControlVisible(UI.hiresColorsGroup, mode === "hires");
+  setControlVisible(UI.atariGr8ColorsGroup, mode === "atari-gr8");
+  setControlVisible(UI.atariHueGroup, mode === "atari-gr9");
+  setControlVisible(UI.ditherModeGroup, usesDither);
+  updateSelectAvailability(UI.colorStrategy, colorStrategies);
+  setControlVisible(UI.colorStrategyGroup, colorStrategies.length > 0);
+  setControlVisible(UI.showGridRow, showGrid);
+  setControlVisible(UI.oklabDistRow, showOklab);
+  setControlVisible(UI.serpentineRow, showSerpentine);
+  setControlVisible(UI.gaussSeidelRow, showGaussSeidel);
+  setControlVisible(UI.blockBlurGroup, showBlockBlur);
+  if (UI.conversionOptionsGroup) {
+    UI.conversionOptionsGroup.dataset.controlVisible = showGrid || showOklab || showSerpentine || showGaussSeidel ? "1" : "0";
+    UI.conversionOptionsGroup.style.display = "";
+  }
+
   UI.exportTap.style.display = cfg.supportsTap ? "" : "none";
   // Pico-8 hex .txt export is mode-specific (only useful in pico8 mode)
   const pico8Row = UI.exportPico8TxtRow;
@@ -2819,7 +3006,7 @@ function updateModeUI() {
   const btn = UI.exportBin;
   if (btn) {
     const ext = cfg.ext;
-    const label = ext.startsWith("_") ? ext : "." + ext;
+    const label = ext.startsWith("_") ? ext : `.${ext}`;
     btn.textContent = `Download ${label}`;
   }
   setExportButtonsEnabled(!!binaryExportState && binaryExportState.mode === mode, mode);
@@ -2852,7 +3039,7 @@ function applyCanvasSplit(percent, redraw = true) {
   if (!row || !divider) return;
   const bounds = canvasSplitBounds(row);
   canvasSplitPercent = Math.max(bounds.min, Math.min(bounds.max, percent));
-  row.style.setProperty("--split-left", canvasSplitPercent.toFixed(2) + "%");
+  row.style.setProperty("--split-left", `${canvasSplitPercent.toFixed(2)}%`);
   divider.setAttribute("aria-valuemin", Math.round(bounds.min));
   divider.setAttribute("aria-valuemax", Math.round(bounds.max));
   divider.setAttribute("aria-valuenow", Math.round(canvasSplitPercent));
@@ -2918,18 +3105,20 @@ initCanvasSplitPanel();
 
 // --- Advanced options toggle (persisted in localStorage) ---
 function initAdvancedToggle() {
-  const sidebar = UI.sidebar;
   const toggle = UI.advancedToggle;
-  if (!sidebar || !toggle) return;
-  const LS_KEY = "retroImg.advancedOptions";
+  const sidebar = UI.sidebar;
+  if (!toggle || !sidebar) return;
+  const lsKey = "retroImg.advancedOptions";
   let enabled = false;
-  try { enabled = localStorage.getItem(LS_KEY) === "1"; } catch (_) {}
+  try { enabled = localStorage.getItem(lsKey) === "1"; } catch (_) {}
   toggle.checked = enabled;
   sidebar.classList.toggle("show-advanced", enabled);
+  initPaletteStrip();
   function handleAdvancedToggleChange() {
     const on = toggle.checked;
     sidebar.classList.toggle("show-advanced", on);
-    try { localStorage.setItem(LS_KEY, on ? "1" : "0"); } catch (_) {}
+    initPaletteStrip();
+    try { localStorage.setItem(lsKey, on ? "1" : "0"); } catch (_) {}
   }
   toggle.addEventListener("change", handleAdvancedToggleChange);
 }
@@ -2982,9 +3171,9 @@ const DITHER_HILBERT_PIXEL_CHUNK = 32768;
 const GPU_READ_INITIAL_POLL_DELAY_MS = 2;
 const GPU_READ_MAX_POLL_DELAY_MS = 16;
 const GPU_READ_POLL_BACKOFF = 1.5;
-const HILBERT_DIFFUSION_WEIGHTS = new Float32Array([5/8, 2/8, 1/8]);
-const WEBGL_CLEAR_TRANSPARENT = new Float32Array([0, 0, 0, 0]);
-const GRID_OVERLAY_COLOR = new Float32Array([1, 1, 0, 0.55]);
+const hilbertDiffusionWeights = new Float32Array([5/8, 2/8, 1/8]);
+const webglClearTransparent = new Float32Array([0, 0, 0, 0]);
+const gridOverlayColor = new Float32Array([1, 1, 0, 0.55]);
 const ZX81_CHARACTER_BLOCK_CHUNK = 128;
 
 let zx81GlyphCandidates = null;
@@ -3052,14 +3241,14 @@ function fillZX81BlockValues(work, width, blockX, blockY, values, equalized) {
 function scoreZX81Features(source, candidate) {
   let score = 0;
   let offset = 0;
-  for (let level = 0; level < ZX81_FIT_COUNTS.length; level++) {
-    const count = ZX81_FIT_COUNTS[level];
+  for (let level = 0; level < zx81FitCounts.length; level++) {
+    const count = zx81FitCounts[level];
     let levelError = 0;
     for (let i = 0; i < count; i++) {
       const d = source[offset + i] - candidate[offset + i];
       levelError += d * d;
     }
-    score += ZX81_FIT_WEIGHTS[level] * levelError / count;
+    score += zx81FitWeights[level] * levelError / count;
     offset += count;
   }
   return score;
@@ -3095,8 +3284,8 @@ const conversionPipelineState = {
   sourceImage: null,
   sourceImageLinear: null,
   mode: "standard",
-  modeCfg: MODES.standard,
-  palettes: PALETTES.standard,
+  modeCfg: modes.standard,
+  palettes: palettes.standard,
   screenWidth: 256,
   screenHeight: 192,
   cropRect: null,
@@ -3294,8 +3483,8 @@ function convert() {
   state.sourceImage = sourceImage;
   state.sourceImageLinear = sourceImageLinear;
   state.mode = UI.displayMode.value;
-  state.modeCfg = MODES[state.mode];
-  state.palettes = PALETTES[state.mode];
+  state.modeCfg = modes[state.mode];
+  state.palettes = palettes[state.mode];
   state.screenWidth = state.modeCfg.w;
   state.screenHeight = state.modeCfg.h;
   state.cropRect = cropRect ? { x: cropRect.x, y: cropRect.y, w: cropRect.w, h: cropRect.h } : null;
@@ -3323,7 +3512,7 @@ function convert() {
   state.adjustments = getAdjustmentParams();
   state.serpentine = UI.serpentine ? UI.serpentine.checked : true;
   state.gaussSeidel = UI.gaussSeidel ? UI.gaussSeidel.checked : false;
-  state.blockBlurRadius = UI.blockBlur ? parseInt(UI.blockBlur.value, 10) / 10 : 0;
+  state.blockBlurRadius = UI.blockBlur && modeSupportsBlockBlur(state.modeCfg) ? parseInt(UI.blockBlur.value, 10) / 10 : 0;
   state.srcLinear = null;
   state.cropMap = null;
   state.work = null;
@@ -3771,11 +3960,15 @@ function pipelineStagePrepareLinearWorkCPUBlurHorizontal(id) {
             if (xi < 0) xi = 0; else if (xi >= prep.width) xi = prep.width - 1;
             const i = (y * prep.width + xi) * 3;
             const w = Math.exp(-(k * k) * prep.blurSpread);
-            sr += prep.work[i] * w; sg += prep.work[i+1] * w; sb += prep.work[i+2] * w;
+            sr += prep.work[i] * w;
+            sg += prep.work[i+1] * w;
+            sb += prep.work[i+2] * w;
             weightSum += w;
           }
           const o = (y * prep.width + x) * 3;
-          prep.blurTemp[o] = sr / weightSum; prep.blurTemp[o+1] = sg / weightSum; prep.blurTemp[o+2] = sb / weightSum;
+          prep.blurTemp[o] = sr / weightSum;
+          prep.blurTemp[o+1] = sg / weightSum;
+          prep.blurTemp[o+2] = sb / weightSum;
         }
       }
       prep.y = yEnd;
@@ -3816,11 +4009,15 @@ function pipelineStagePrepareLinearWorkCPUBlurVertical(id) {
             if (yi < 0) yi = 0; else if (yi >= prep.height) yi = prep.height - 1;
             const i = (yi * prep.width + x) * 3;
             const w = Math.exp(-(k * k) * prep.blurSpread);
-            sr += prep.blurTemp[i] * w; sg += prep.blurTemp[i+1] * w; sb += prep.blurTemp[i+2] * w;
+            sr += prep.blurTemp[i] * w;
+            sg += prep.blurTemp[i+1] * w;
+            sb += prep.blurTemp[i+2] * w;
             weightSum += w;
           }
           const o = (y * prep.width + x) * 3;
-          prep.blockWork[o] = sr / weightSum; prep.blockWork[o+1] = sg / weightSum; prep.blockWork[o+2] = sb / weightSum;
+          prep.blockWork[o] = sr / weightSum;
+          prep.blockWork[o+1] = sg / weightSum;
+          prep.blockWork[o+2] = sb / weightSum;
         }
       }
       prep.y = yEnd;
@@ -3982,23 +4179,23 @@ function pipelineStageQuantizeMode(id) {
     const sampleCols = Math.ceil(screenW / 4);
     const sampleRows = Math.ceil(screenH / 4);
     const sampleCount = sampleCols * sampleRows;
-    const K = modeCfg.colorsPerBlock;
+    const colorCount = modeCfg.colorsPerBlock;
     state.quantizePass = {
       pal: palettes[0],
-      K,
+      colorCount,
       sampleCols,
       sampleRows,
       sampleCount,
       samples: state.globalSamplesBuffer = ensureFloat32Buffer(state.globalSamplesBuffer, sampleCount * 3),
       sampleOffset: 0,
-      centroids: state.globalCentroidsBuffer = ensureFloat32Buffer(state.globalCentroidsBuffer, K * 3),
+      centroids: state.globalCentroidsBuffer = ensureFloat32Buffer(state.globalCentroidsBuffer, colorCount * 3),
       centroidCount: 0,
       dists: state.globalDistsBuffer = ensureFloat32Buffer(state.globalDistsBuffer, sampleCount),
       seedOffset: 0,
       seedSum: 0,
       iter: 0,
       assignOffset: 0,
-      sums: state.globalSumsBuffer = ensureFloat32Buffer(state.globalSumsBuffer, K * 4),
+      sums: state.globalSumsBuffer = ensureFloat32Buffer(state.globalSumsBuffer, colorCount * 4),
     };
     pipelineStageQuantizeGlobalSamples(id);
     return;
@@ -4006,7 +4203,7 @@ function pipelineStageQuantizeMode(id) {
   if (strategy === "pixel-direct") {
     let fullPal;
     if (mode === "atari-gr9") {
-      fullPal = PALETTE_ATARI_LUMA_LINEAR[state.atariHue] || PALETTE_ATARI_LUMA_LINEAR[0];
+      fullPal = paletteAtariLumaLinear[state.atariHue] || paletteAtariLumaLinear[0];
       modeMeta.gr9Hue = state.atariHue;
     } else {
       fullPal = palettes[0];
@@ -4034,8 +4231,10 @@ function pipelineStageQuantizeMode(id) {
     enabledIndices.length = enabledCount;
     enabledPal.length = enabledCount;
     // One logical block that covers everything
-    numAttrCols = 1; numAttrRows = 1;
-    bW = screenW; bH = screenH;
+    numAttrCols = 1;
+    numAttrRows = 1;
+    bW = screenW;
+    bH = screenH;
     blockColors = [[enabledPal]];
     blockIndices = [[enabledIndices]];
     attrs = null;
@@ -4048,8 +4247,10 @@ function pipelineStageQuantizeMode(id) {
       const paperIdx = inkIdx ^ 7;
       const bright = 0;
       const pal = palettes[bright];
-      numAttrCols = 1; numAttrRows = 1;
-      bW = screenW; bH = screenH;
+      numAttrCols = 1;
+      numAttrRows = 1;
+      bW = screenW;
+      bH = screenH;
       blockColors = [[[pal[inkIdx], pal[paperIdx]]]];
       const pair = state.userPickedPairBuffer = ensureInt16Buffer(state.userPickedPairBuffer, 2);
       pair[0] = inkIdx;
@@ -4065,8 +4266,10 @@ function pipelineStageQuantizeMode(id) {
       const fgIdx = fgHue * 8 + fgLuma;
       const bgIdx = bgHue * 8 + bgLuma;
       const pal = palettes[0];
-      numAttrCols = 1; numAttrRows = 1;
-      bW = screenW; bH = screenH;
+      numAttrCols = 1;
+      numAttrRows = 1;
+      bW = screenW;
+      bH = screenH;
       blockColors = [[[pal[fgIdx], pal[bgIdx]]]];
       const pair = state.userPickedPairBuffer = ensureInt16Buffer(state.userPickedPairBuffer, 2);
       pair[0] = fgIdx;
@@ -4165,17 +4368,25 @@ function pipelineStageQuantizeZXExhaustiveBlocks(id) {
         } else if (colorStrategy === "pca") {
           let mr = 0, mg = 0, mb = 0, n = 0;
           for (let i = 0; i < source.length; i += 3) {
-            mr += source[i]; mg += source[i + 1]; mb += source[i + 2];
+            mr += source[i];
+            mg += source[i + 1];
+            mb += source[i + 2];
             n++;
           }
-          mr /= n; mg /= n; mb /= n;
+          mr /= n;
+          mg /= n;
+          mb /= n;
           let c00=0, c01=0, c02=0, c11=0, c12=0, c22=0;
           for (let i = 0; i < source.length; i += 3) {
             const dr = source[i] - mr;
             const dg = source[i + 1] - mg;
             const db = source[i + 2] - mb;
-            c00 += dr*dr; c01 += dr*dg; c02 += dr*db;
-            c11 += dg*dg; c12 += dg*db; c22 += db*db;
+            c00 += dr*dr;
+            c01 += dr*dg;
+            c02 += dr*db;
+            c11 += dg*dg;
+            c12 += dg*db;
+            c22 += db*db;
           }
           let vx = 1, vy = 1, vz = 1;
           for (let it = 0; it < 10; it++) {
@@ -4183,7 +4394,9 @@ function pipelineStageQuantizeZXExhaustiveBlocks(id) {
             const ny = c01*vx + c11*vy + c12*vz;
             const nz = c02*vx + c12*vy + c22*vz;
             const mag = Math.sqrt(nx*nx + ny*ny + nz*nz) || 1;
-            vx = nx / mag; vy = ny / mag; vz = nz / mag;
+            vx = nx / mag;
+            vy = ny / mag;
+            vz = nz / mag;
           }
           let tmin = Infinity, tmax = -Infinity;
           let minR=0, minG=0, minB=0, maxR=0, maxG=0, maxB=0;
@@ -4196,10 +4409,16 @@ function pipelineStageQuantizeZXExhaustiveBlocks(id) {
             const db = sb - mb;
             const t = dr*vx + dg*vy + db*vz;
             if (t < tmin) {
-              tmin = t; minR = sr; minG = sg; minB = sb;
+              tmin = t;
+              minR = sr;
+              minG = sg;
+              minB = sb;
             }
             if (t > tmax) {
-              tmax = t; maxR = sr; maxG = sg; maxB = sb;
+              tmax = t;
+              maxR = sr;
+              maxG = sg;
+              maxB = sb;
             }
           }
           for (let bright = 0; bright <= 1; bright++) {
@@ -4211,18 +4430,27 @@ function pipelineStageQuantizeZXExhaustiveBlocks(id) {
               const d0 = useOklab ?
                 colorDistOklab(minR, minG, minB, color[0], color[1], color[2]) :
                 colorDistWeightedRgb(minR, minG, minB, color[0], color[1], color[2]);
-              if (d0 < lowD) { lowD = d0; lowIdx = i; }
+              if (d0 < lowD) {
+                lowD = d0;
+                lowIdx = i;
+              }
               const d1 = useOklab ?
                 colorDistOklab(maxR, maxG, maxB, color[0], color[1], color[2]) :
                 colorDistWeightedRgb(maxR, maxG, maxB, color[0], color[1], color[2]);
-              if (d1 < hiD) { hiD = d1; hiIdx = i; }
+              if (d1 < hiD) {
+                hiD = d1;
+                hiIdx = i;
+              }
             }
             if (requireDistinct && lowIdx === hiIdx) continue;
             pair[0] = pal[lowIdx];
             pair[1] = pal[hiIdx];
             const err = evaluateBlock(blockWork, screenW, blockX, blockY, bW, bH, pair, ditherMode, q.evalTemp, source, bestError);
             if (err < bestError) {
-              bestError = err; bestInk = lowIdx; bestPaper = hiIdx; bestBright = bright;
+              bestError = err;
+              bestInk = lowIdx;
+              bestPaper = hiIdx;
+              bestBright = bright;
             }
           }
         } else if (colorStrategy === "weighted-average") {
@@ -4364,7 +4592,11 @@ function pipelineStageQuantizeC64HiresBlocks(id) {
               pair[0] = pal[colorA];
               pair[1] = pal[colorB];
               const err = evaluateBlock(blockWork, screenW, blockX, blockY, bW, bH, pair, ditherMode, q.evalTemp, source, bestError);
-              if (err < bestError) { bestError = err; bestA = colorA; bestB = colorB; }
+              if (err < bestError) {
+                bestError = err;
+                bestA = colorA;
+                bestB = colorB;
+              }
             }
 
             const next = mask + lowBit;
@@ -4439,8 +4671,12 @@ function pipelineStageQuantizeC64KoalaBackground(id) {
             pass.counts[quantizeNearestWeightedRgb(r, g, b, pal)]++;
           }
         }
-        pass.topIds[0] = pass.bgIdx; pass.topIds[1] = pass.bgIdx; pass.topIds[2] = pass.bgIdx;
-        pass.topCounts[0] = 0; pass.topCounts[1] = 0; pass.topCounts[2] = 0;
+        pass.topIds[0] = pass.bgIdx;
+        pass.topIds[1] = pass.bgIdx;
+        pass.topIds[2] = pass.bgIdx;
+        pass.topCounts[0] = 0;
+        pass.topCounts[1] = 0;
+        pass.topCounts[2] = 0;
         for (let i = 0; i < 16; i++) {
           if (i === pass.bgIdx || pass.counts[i] === 0) continue;
           const count = pass.counts[i];
@@ -4671,7 +4907,7 @@ function pipelineStageQuantizeGlobalSeedInit(id) {
     pipelineFail(id, new Error("Missing global prequantize seed state"), "Unable to seed image colors.");
     return;
   }
-  if (pass.sampleCount <= 0 || pass.K <= 0) {
+  if (pass.sampleCount <= 0 || pass.colorCount <= 0) {
     pipelineStageQuantizeGlobalFinish(id);
     return;
   }
@@ -4681,7 +4917,7 @@ function pipelineStageQuantizeGlobalSeedInit(id) {
   pass.centroids[1] = pass.samples[src + 1];
   pass.centroids[2] = pass.samples[src + 2];
   pass.centroidCount = 1;
-  if (pass.centroidCount >= pass.K) {
+  if (pass.centroidCount >= pass.colorCount) {
     pipelineStageQuantizeGlobalLloydAssign(id);
     return;
   }
@@ -4749,7 +4985,10 @@ function pipelineStageQuantizeGlobalSeedChoose(id) {
   let chosen = pass.sampleCount - 1;
   for (let i = 0; i < pass.sampleCount; i++) {
     pick -= pass.dists[i];
-    if (pick <= 0) { chosen = i; break; }
+    if (pick <= 0) {
+      chosen = i;
+      break;
+    }
   }
   const src = chosen * 3;
   const dst = pass.centroidCount * 3;
@@ -4757,7 +4996,7 @@ function pipelineStageQuantizeGlobalSeedChoose(id) {
   pass.centroids[dst + 1] = pass.samples[src + 1];
   pass.centroids[dst + 2] = pass.samples[src + 2];
   pass.centroidCount++;
-  if (pass.centroidCount < pass.K) {
+  if (pass.centroidCount < pass.colorCount) {
     pass.seedOffset = 0;
     pass.seedSum = 0;
     pipelineStageQuantizeGlobalSeedDistances(id);
@@ -4790,12 +5029,15 @@ function pipelineStageQuantizeGlobalLloydAssign(id) {
         const g = pass.samples[src + 1];
         const b = pass.samples[src + 2];
         let bestK = 0, bestD = Infinity;
-        for (let k = 0; k < pass.K; k++) {
+        for (let k = 0; k < pass.colorCount; k++) {
           const ci = k * 3;
           const d = useOklab ?
             colorDistOklab(r, g, b, pass.centroids[ci], pass.centroids[ci + 1], pass.centroids[ci + 2]) :
             colorDistWeightedRgb(r, g, b, pass.centroids[ci], pass.centroids[ci + 1], pass.centroids[ci + 2]);
-          if (d < bestD) { bestD = d; bestK = k; }
+          if (d < bestD) {
+            bestD = d;
+            bestK = k;
+          }
         }
         const si = bestK * 4;
         pass.sums[si] += r;
@@ -4828,7 +5070,7 @@ function pipelineStageQuantizeGlobalLloydUpdate(id) {
     return;
   }
   let maxDeltaSq = 0;
-  for (let k = 0; k < pass.K; k++) {
+  for (let k = 0; k < pass.colorCount; k++) {
     const si = k * 4;
     if (pass.sums[si + 3] === 0) continue;
     const nr = pass.sums[si] / pass.sums[si + 3];
@@ -4863,11 +5105,11 @@ function pipelineStageQuantizeGlobalFinish(id) {
     pipelineFail(id, new Error("Missing global prequantize finish state"), "Unable to choose global colors.");
     return;
   }
-  const chosenIndices = state.globalChosenIndicesBuffer = ensureInt16Buffer(state.globalChosenIndicesBuffer, pass.K);
+  const chosenIndices = state.globalChosenIndicesBuffer = ensureInt16Buffer(state.globalChosenIndicesBuffer, pass.colorCount);
   const seen = state.globalSeenBuffer = ensureUint8Buffer(state.globalSeenBuffer, pass.pal.length);
   seen.fill(0);
   let chosenCount = 0;
-  for (let k = 0; k < pass.K; k++) {
+  for (let k = 0; k < pass.colorCount; k++) {
     const ci = k * 3;
     const pi = useOklab ?
       quantizeNearestOklab(pass.centroids[ci], pass.centroids[ci + 1], pass.centroids[ci + 2], pass.pal) :
@@ -4877,8 +5119,8 @@ function pipelineStageQuantizeGlobalFinish(id) {
       chosenIndices[chosenCount++] = pi;
     }
   }
-  for (let k = 0; k < pass.K; k++) {
-    if (chosenCount >= pass.K) break;
+  for (let k = 0; k < pass.colorCount; k++) {
+    if (chosenCount >= pass.colorCount) break;
     const ci = k * 3;
     let best = -1, bestD = Infinity;
     for (let i = 0; i < pass.pal.length; i++) {
@@ -4887,7 +5129,10 @@ function pipelineStageQuantizeGlobalFinish(id) {
       const d = useOklab ?
         colorDistOklab(pass.centroids[ci], pass.centroids[ci + 1], pass.centroids[ci + 2], c[0], c[1], c[2]) :
         colorDistWeightedRgb(pass.centroids[ci], pass.centroids[ci + 1], pass.centroids[ci + 2], c[0], c[1], c[2]);
-      if (d < bestD) { bestD = d; best = i; }
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
     }
     if (best >= 0) {
       seen[best] = 1;
@@ -4895,8 +5140,8 @@ function pipelineStageQuantizeGlobalFinish(id) {
     }
   }
   const chosenColors = state.globalChosenColorsBuffer || (state.globalChosenColorsBuffer = []);
-  chosenColors.length = pass.K;
-  for (let i = 0; i < pass.K; i++) chosenColors[i] = pass.pal[chosenIndices[i]];
+  chosenColors.length = pass.colorCount;
+  for (let i = 0; i < pass.colorCount; i++) chosenColors[i] = pass.pal[chosenIndices[i]];
   q.blockColors[0][0] = chosenColors;
   q.blockIndices[0][0] = chosenIndices;
   q.modeMeta.atariRegs = chosenIndices;
@@ -5407,7 +5652,7 @@ function pipelineStageDitherHilbertPixels(id) {
           if (nk >= pass.order.length) break;
           const nx = pass.order[nk], ny = pass.order[nk + 1];
           const nIdx = (ny * pass.width + nx) * 3;
-          const weight = HILBERT_DIFFUSION_WEIGHTS[w];
+          const weight = hilbertDiffusionWeights[w];
           pass.temp[nIdx] += er * weight;
           pass.temp[nIdx + 1] += eg * weight;
           pass.temp[nIdx + 2] += eb * weight;
@@ -5445,8 +5690,11 @@ function pipelineStageFinishDitherPass(id) {
       q.strategy === "exhaustive" &&
       (state.mode === "standard" || state.mode === "ts-standard" || state.mode === "ecm") &&
       q.attrs;
-    if (needsGS) pipelineStageAfterInitialDither(id);
-    else pipelineStageCompleteDitherQuantizedBlocks(id);
+    if (needsGS) {
+      pipelineStageAfterInitialDither(id);
+    } else {
+      pipelineStageCompleteDitherQuantizedBlocks(id);
+    }
     return;
   }
   if (reason === "gs") {
@@ -5582,14 +5830,24 @@ function pipelineStageGSRefineBlocks(id) {
             pair[0] = pal[c];
             pair[1] = pal[curPaper];
             const err = evaluateBlock(blockWork, screenW, blockX, blockY, q.bW, q.bH, pair, ditherMode, q.evalTemp, source, bestErr);
-            if (err < bestErr) { bestErr = err; bestInk = c; bestPaper = curPaper; bestBright = curBright; }
+            if (err < bestErr) {
+              bestErr = err;
+              bestInk = c;
+              bestPaper = curPaper;
+              bestBright = curBright;
+            }
           }
           if (c !== curInk && isPipelineColorEnabled(colorMasks, curBright, curInk) && isPipelineColorEnabled(colorMasks, curBright, c)) {
             const pal = palettes[curBright];
             pair[0] = pal[curInk];
             pair[1] = pal[c];
             const err = evaluateBlock(blockWork, screenW, blockX, blockY, q.bW, q.bH, pair, ditherMode, q.evalTemp, source, bestErr);
-            if (err < bestErr) { bestErr = err; bestInk = curInk; bestPaper = c; bestBright = curBright; }
+            if (err < bestErr) {
+              bestErr = err;
+              bestInk = curInk;
+              bestPaper = c;
+              bestBright = curBright;
+            }
           }
         }
         const flipBright = curBright ^ 1;
@@ -5599,7 +5857,12 @@ function pipelineStageGSRefineBlocks(id) {
           pair[0] = pal[c];
           pair[1] = pal[curPaper];
           const err = evaluateBlock(blockWork, screenW, blockX, blockY, q.bW, q.bH, pair, ditherMode, q.evalTemp, source, bestErr);
-          if (err < bestErr) { bestErr = err; bestInk = c; bestPaper = curPaper; bestBright = flipBright; }
+          if (err < bestErr) {
+            bestErr = err;
+            bestInk = c;
+            bestPaper = curPaper;
+            bestBright = flipBright;
+          }
         }
         if (bestInk !== curInk || bestPaper !== curPaper || bestBright !== curBright) {
           q.attrs[cell] = (bestBright << 6) | (bestPaper << 3) | bestInk;
@@ -5820,10 +6083,14 @@ function evaluateBlock(work, width, bx, by, bw, bh, colors, ditherMode, temp, so
         for (let px = 0; px < bw; px++) {
           let r, g, b;
           if (source) {
-            r = source[src++]; g = source[src++]; b = source[src++];
+            r = source[src++];
+            g = source[src++];
+            b = source[src++];
           } else {
             const idx = ((by + py) * width + (bx + px)) * 3;
-            r = work[idx]; g = work[idx+1]; b = work[idx+2];
+            r = work[idx];
+            g = work[idx+1];
+            b = work[idx+2];
           }
           r = Math.max(0, Math.min(1, r));
           g = Math.max(0, Math.min(1, g));
@@ -5848,10 +6115,14 @@ function evaluateBlock(work, width, bx, by, bw, bh, colors, ditherMode, temp, so
         for (let px = 0; px < bw; px++) {
           let r, g, b;
           if (source) {
-            r = source[src++]; g = source[src++]; b = source[src++];
+            r = source[src++];
+            g = source[src++];
+            b = source[src++];
           } else {
             const idx = ((by + py) * width + (bx + px)) * 3;
-            r = work[idx]; g = work[idx+1]; b = work[idx+2];
+            r = work[idx];
+            g = work[idx+1];
+            b = work[idx+2];
           }
           r = Math.max(0, Math.min(1, r));
           g = Math.max(0, Math.min(1, g));
@@ -6063,8 +6334,11 @@ function generate64ColScreen(pixels, attrs) {
       }
       // Bank selection: even char cols -> DF1, odd -> DF2
       const bankCol = charCol >> 1;
-      if ((charCol & 1) === 0) df1[rowAddr + bankCol] = byte;
-      else                     df2[rowAddr + bankCol] = byte;
+      if ((charCol & 1) === 0) {
+        df1[rowAddr + bankCol] = byte;
+      } else {
+        df2[rowAddr + bankCol] = byte;
+      }
     }
   }
 
@@ -6077,11 +6351,12 @@ function generate64ColScreen(pixels, attrs) {
 // ==============================================================
 function generateC64Hires(pixels, blockColors, blockIndices) {
   const out = new Uint8Array(2 + 8000 + 1000);
-  out[0] = 0x00; out[1] = 0x20; // load at $2000
+  out[0] = 0x00;
+  out[1] = 0x20; // load at $2000
   const bitmap = out.subarray(2, 2 + 8000);
   const screen = out.subarray(2 + 8000, 2 + 8000 + 1000);
 
-  const W = 320, H = 200;
+  const width = 320;
   for (let row = 0; row < 25; row++) {
     for (let col = 0; col < 40; col++) {
       const [fgIdx, bgIdx] = blockIndices[row][col];
@@ -6093,7 +6368,7 @@ function generateC64Hires(pixels, blockColors, blockIndices) {
         let byte = 0;
         for (let sx = 0; sx < 8; sx++) {
           const x = col * 8 + sx;
-          const pIdx = (y * W + x) * 3;
+          const pIdx = (y * width + x) * 3;
           const r = pixels[pIdx], g = pixels[pIdx+1], b = pixels[pIdx+2];
           const dFg = useOklab ?
             colorDistOklab(r, g, b, fgRGB[0], fgRGB[1], fgRGB[2]) :
@@ -6116,13 +6391,14 @@ function generateC64Hires(pixels, blockColors, blockIndices) {
 // ==============================================================
 function generateC64Koala(pixels, blockColors, blockIndices, bgIdx) {
   const out = new Uint8Array(10003);
-  out[0] = 0x00; out[1] = 0x60; // load at $6000
+  out[0] = 0x00;
+  out[1] = 0x60; // load at $6000
   const bitmap = out.subarray(2, 2 + 8000);
   const screen = out.subarray(2 + 8000, 2 + 9000);
   const colorRam = out.subarray(2 + 9000, 2 + 10000);
   out[10002] = bgIdx & 0x0F;
 
-  const W = 160;
+  const width = 160;
   // 40 cells × 25 rows, each cell 4×8 source pixels (koala = half-width)
   for (let row = 0; row < 25; row++) {
     for (let col = 0; col < 40; col++) {
@@ -6137,7 +6413,7 @@ function generateC64Koala(pixels, blockColors, blockIndices, bgIdx) {
         let byte = 0;
         for (let sx = 0; sx < 4; sx++) {
           const x = col * 4 + sx;
-          const pIdx = (y * W + x) * 3;
+          const pIdx = (y * width + x) * 3;
           const r = pixels[pIdx], g = pixels[pIdx+1], b = pixels[pIdx+2];
           let best = 0, bestD = Infinity;
           for (let k = 0; k < 4; k++) {
@@ -6145,7 +6421,10 @@ function generateC64Koala(pixels, blockColors, blockIndices, bgIdx) {
             const d = useOklab ?
               colorDistOklab(r, g, b, color[0], color[1], color[2]) :
               colorDistWeightedRgb(r, g, b, color[0], color[1], color[2]);
-            if (d < bestD) { bestD = d; best = k; }
+            if (d < bestD) {
+              bestD = d;
+              best = k;
+            }
           }
           // bit pair within byte: leftmost pixel = bits 7-6
           const shift = (3 - sx) * 2;
@@ -6163,22 +6442,23 @@ function generateC64Koala(pixels, blockColors, blockIndices, bgIdx) {
 // 160×192, 2 bits/pixel, 40 bytes/line
 // ==============================================================
 function generateAtariGr15(pixels, regIndices) {
-  // regIndices = [bg, pf0, pf1, pf2] palette indices into PALETTE_ATARI
-  const W = 160, H = 192;
+  // regIndices = [bg, pf0, pf1, pf2] palette indices into paletteAtari
+  const width = 160;
+  const height = 192;
   const out = new Uint8Array(7684);
   const bitmap = out.subarray(0, 7680);
   const colors = [
-    PALETTE_ATARI[regIndices[0]],
-    PALETTE_ATARI[regIndices[1]],
-    PALETTE_ATARI[regIndices[2]],
-    PALETTE_ATARI[regIndices[3]],
+    paletteAtari[regIndices[0]],
+    paletteAtari[regIndices[1]],
+    paletteAtari[regIndices[2]],
+    paletteAtari[regIndices[3]],
   ];
-  for (let y = 0; y < H; y++) {
+  for (let y = 0; y < height; y++) {
     for (let xb = 0; xb < 40; xb++) {
       let byte = 0;
       for (let sx = 0; sx < 4; sx++) {
         const x = xb * 4 + sx;
-        const pIdx = (y * W + x) * 3;
+        const pIdx = (y * width + x) * 3;
         const r = pixels[pIdx], g = pixels[pIdx+1], b = pixels[pIdx+2];
         let best = 0, bestD = Infinity;
         for (let k = 0; k < 4; k++) {
@@ -6186,7 +6466,10 @@ function generateAtariGr15(pixels, regIndices) {
           const d = useOklab ?
             colorDistOklab(r, g, b, color[0], color[1], color[2]) :
             colorDistWeightedRgb(r, g, b, color[0], color[1], color[2]);
-          if (d < bestD) { bestD = d; best = k; }
+          if (d < bestD) {
+            bestD = d;
+            best = k;
+          }
         }
         const shift = (3 - sx) * 2;
         byte |= (best & 0x03) << shift;
@@ -6204,15 +6487,16 @@ function generateAtariGr15(pixels, regIndices) {
 // Atari GR.8: 320×192 2-color hi-res, 7680 bytes, 1 bpp, MSB-first, 40 bytes/line
 // ==============================================================
 function generateAtariGr8(pixels, colorPair) {
-  const W = 320, H = 192;
+  const width = 320;
+  const height = 192;
   const out = new Uint8Array(7680);
   const fg = colorPair[0], bg = colorPair[1];
-  for (let y = 0; y < H; y++) {
+  for (let y = 0; y < height; y++) {
     for (let xb = 0; xb < 40; xb++) {
       let byte = 0;
       for (let sx = 0; sx < 8; sx++) {
         const x = xb * 8 + sx;
-        const pIdx = (y * W + x) * 3;
+        const pIdx = (y * width + x) * 3;
         const r = pixels[pIdx], g = pixels[pIdx+1], b = pixels[pIdx+2];
         const fgDist = useOklab ?
           colorDistOklab(r, g, b, fg[0], fg[1], fg[2]) :
@@ -6235,14 +6519,15 @@ function generateAtariGr8(pixels, colorPair) {
 // High nibble = left pixel, low nibble = right pixel.
 // ==============================================================
 function generateAtariGr9(pixels, palette) {
-  const W = 80, H = 192;
+  const width = 80;
+  const height = 192;
   const out = new Uint8Array(7680);
-  for (let y = 0; y < H; y++) {
+  for (let y = 0; y < height; y++) {
     for (let xb = 0; xb < 40; xb++) {
       const x0 = xb * 2;
       const x1 = xb * 2 + 1;
-      const p0 = (y * W + x0) * 3;
-      const p1 = (y * W + x1) * 3;
+      const p0 = (y * width + x0) * 3;
+      const p1 = (y * width + x1) * 3;
       const n0 = (useOklab ?
         quantizeNearestOklab(pixels[p0], pixels[p0+1], pixels[p0+2], palette) :
         quantizeNearestWeightedRgb(pixels[p0], pixels[p0+1], pixels[p0+2], palette)) & 0x0F;
@@ -6261,30 +6546,31 @@ function generateAtariGr9(pixels, palette) {
 // Color bits: G | R | B (LSB=B); flash=0.
 // ==============================================================
 function generateQLMode8(pixels) {
-  const W = 256, H = 256;
+  const width = 256;
+  const height = 256;
   const out = new Uint8Array(32768);
   const pal = PALETTE_QL; // black, blue(B), red(R), magenta(R+B), green(G), cyan(G+B), yellow(G+R), white(G+R+B)
-  for (let y = 0; y < H; y++) {
+  for (let y = 0; y < height; y++) {
     for (let w = 0; w < 64; w++) {
       // 4 pixels per word
       let hi = 0, lo = 0;
       for (let p = 0; p < 4; p++) {
         const x = w * 4 + p;
-        const pIdx = (y * W + x) * 3;
+        const pIdx = (y * width + x) * 3;
         const ci = useOklab ?
           quantizeNearestOklab(pixels[pIdx], pixels[pIdx+1], pixels[pIdx+2], pal) :
           quantizeNearestWeightedRgb(pixels[pIdx], pixels[pIdx+1], pixels[pIdx+2], pal);
         // ci: 0=black, 1=B, 2=R, 3=R+B, 4=G, 5=G+B, 6=G+R, 7=G+R+B
-        const G = (ci >> 2) & 1;
-        const R = (ci >> 1) & 1;
-        const B = ci & 1;
-        const F = 0;
+        const greenBit = (ci >> 2) & 1;
+        const redBit = (ci >> 1) & 1;
+        const blueBit = ci & 1;
+        const flashBit = 0;
         // High byte: for pixel p (0..3), green at bit (7 - 2p), flash at bit (6 - 2p)
-        hi |= (G << (7 - 2 * p));
-        hi |= (F << (6 - 2 * p));
+        hi |= (greenBit << (7 - 2 * p));
+        hi |= (flashBit << (6 - 2 * p));
         // Low byte: red at bit (7 - 2p), blue at bit (6 - 2p)
-        lo |= (R << (7 - 2 * p));
-        lo |= (B << (6 - 2 * p));
+        lo |= (redBit << (7 - 2 * p));
+        lo |= (blueBit << (6 - 2 * p));
       }
       const off = y * 128 + w * 2;
       out[off] = hi;
@@ -6300,23 +6586,24 @@ function generateQLMode8(pixels) {
 // Color = (G<<1) | R.
 // ==============================================================
 function generateQLMode4(pixels) {
-  const W = 512, H = 256;
+  const width = 512;
+  const height = 256;
   const out = new Uint8Array(32768);
   const pal = PALETTE_QL_MODE4;
-  for (let y = 0; y < H; y++) {
+  for (let y = 0; y < height; y++) {
     for (let w = 0; w < 64; w++) {
       let hi = 0, lo = 0;
       for (let p = 0; p < 8; p++) {
         const x = w * 8 + p;
-        const pIdx = (y * W + x) * 3;
+        const pIdx = (y * width + x) * 3;
         const ci = useOklab ?
           quantizeNearestOklab(pixels[pIdx], pixels[pIdx+1], pixels[pIdx+2], pal) :
           quantizeNearestWeightedRgb(pixels[pIdx], pixels[pIdx+1], pixels[pIdx+2], pal);
         // ci: 0=blk,1=R,2=G,3=W
-        const R = ci & 1;
-        const G = (ci >> 1) & 1;
-        hi |= (G << (7 - p));
-        lo |= (R << (7 - p));
+        const redBit = ci & 1;
+        const greenBit = (ci >> 1) & 1;
+        hi |= (greenBit << (7 - p));
+        lo |= (redBit << (7 - p));
       }
       const off = y * 128 + w * 2;
       out[off] = hi;
@@ -6433,10 +6720,12 @@ function generateTap(blocks) {
   for (const p of pairs) {
     tap[o++] = p.headerBlock.length & 0xFF;
     tap[o++] = (p.headerBlock.length >> 8) & 0xFF;
-    tap.set(p.headerBlock, o); o += p.headerBlock.length;
+    tap.set(p.headerBlock, o);
+    o += p.headerBlock.length;
     tap[o++] = p.dataBlock.length & 0xFF;
     tap[o++] = (p.dataBlock.length >> 8) & 0xFF;
-    tap.set(p.dataBlock, o); o += p.dataBlock.length;
+    tap.set(p.dataBlock, o);
+    o += p.dataBlock.length;
   }
   return tap;
 }
@@ -6447,7 +6736,7 @@ function getActiveOutputState() {
 
 function getSavedOutputState() {
   if (!abSnapshot) return null;
-  const modeCfg = abSnapshot.modeCfg || MODES[abSnapshot.mode] || MODES.standard;
+  const modeCfg = abSnapshot.modeCfg || modes[abSnapshot.mode] || modes.standard;
   return {
     pixels: abSnapshot.pixels,
     w: abSnapshot.w,
@@ -6466,7 +6755,7 @@ function getDisplayedOutputState() {
 
 function getDisplayedOutputModeCfg() {
   const state = getDisplayedOutputState();
-  return state ? state.modeCfg : (MODES[currentMode] ?? MODES.standard);
+  return state ? state.modeCfg : (modes[currentMode] ?? modes.standard);
 }
 
 function renderDisplayedOutput(shaderTime = performance.now() * 0.001) {
@@ -6495,7 +6784,7 @@ function getOutputScale(modeCfg) {
 function renderOutputGridOverlay(gridInfo, scale, stretchX, stretchY, outScale, modeCfg) {
   const gridCanvas = UI.outputGridCanvas;
   if (!gridCanvas) return;
-  if (!UI.showGrid.checked || modeCfg.blockW <= 1) {
+  if (!UI.showGrid.checked || !modeSupportsGridOverlay(modeCfg)) {
     if (gridCanvas.style.display !== "none") gridCanvas.style.display = "none";
     gridCanvas._gridSignature = "";
     return;
@@ -6518,19 +6807,19 @@ function renderOutputGridOverlay(gridInfo, scale, stretchX, stretchY, outScale, 
   gridCanvas._gridSignature = signature;
   gridCanvas.width = dispW;
   gridCanvas.height = dispH;
-  gridCanvas.style.width = dispW + "px";
-  gridCanvas.style.height = dispH + "px";
+  gridCanvas.style.width = `${dispW}px`;
+  gridCanvas.style.height = `${dispH}px`;
   gridCanvas.style.display = "";
   const renderer = getWebGLCanvasRenderer(gridCanvas);
-  webglCanvasClear(renderer, dispW, dispH, WEBGL_CLEAR_TRANSPARENT);
+  webglCanvasClear(renderer, dispW, dispH, webglClearTransparent);
 
   // For ECM, attribute blocks are 8x1; drawing 192 horizontal lines would be
   // visually overwhelming so we draw the 8x8 character grid instead.
   for (let x = x0; x <= x0 + imageW + 0.01; x += blockW) {
-    webglCanvasFillRect(renderer, x, y0, 1, imageH, GRID_OVERLAY_COLOR);
+    webglCanvasFillRect(renderer, x, y0, 1, imageH, gridOverlayColor);
   }
   for (let y = y0; y <= y0 + imageH + 0.01; y += blockH) {
-    webglCanvasFillRect(renderer, x0, y, imageW, 1, GRID_OVERLAY_COLOR);
+    webglCanvasFillRect(renderer, x0, y, imageW, 1, gridOverlayColor);
   }
 }
 
@@ -6540,7 +6829,7 @@ function getPreviewScale() {
 
 // --- Export helpers ---
 function setExportButtonsEnabled(enabled, mode = currentMode) {
-  const cfg = MODES[mode] ?? MODES.standard;
+  const cfg = modes[mode] ?? modes.standard;
   const hasPixels = enabled && !!activeOutputState;
   UI.exportPng1x.disabled = !hasPixels;
   UI.exportPng2x.disabled = !hasPixels;
@@ -6594,7 +6883,7 @@ function buildBinaryExportData() {
   if (state.scrBytes) return state;
 
   const mode = state.mode;
-  const modeCfg = MODES[mode] ?? MODES.standard;
+  const modeCfg = modes[mode] ?? modes.standard;
   const pixels = ensureStateSRGBPixels(state);
   if (!pixels) return null;
   const attrs = state.attrs;
@@ -6680,7 +6969,7 @@ function getExportImageRenderer() {
 function exportImage(format, scale) {
   const state = getActiveOutputState();
   if (!state || !state.pixels) return;
-  const modeCfg = state.modeCfg || MODES[state.mode] || MODES.standard;
+  const modeCfg = state.modeCfg || modes[state.mode] || modes.standard;
   const stretchX = getModeDisplayAspect(modeCfg);
   const stretchY = 1;
   const outW = Math.round(state.w * scale * stretchX);
@@ -6701,7 +6990,7 @@ function exportImage(format, scale) {
 UI.exportBin.addEventListener("click", () => {
   const state = buildBinaryExportData();
   if (!state || !state.scrBytes) return;
-  const cfg = MODES[state.mode];
+  const cfg = modes[state.mode];
   if (!cfg || cfg.custom) return;
   const label = cfg.label;
   const ext = cfg.ext;
@@ -6714,7 +7003,7 @@ UI.exportTap.addEventListener("click", () => {
   const state = buildBinaryExportData();
   if (!state || !state.tapBlocks) return;
   const tap = generateTap(state.tapBlocks);
-  const label = MODES[state.mode].label;
+  const label = modes[state.mode].label;
   downloadBlob(new Blob([tap], { type: "application/octet-stream" }),
                `image_${label}.tap`);
 });
@@ -6751,9 +7040,9 @@ let crtOutputRendererUnavailable = false;
 let crtAnimationStarted = false;
 let crtBorderColorIndex = 0;
 const MODE_BORDER_BLACK_PALETTE = [[0, 0, 0]];
-const MODE_BORDER_PAPER_PALETTE = [null];
-const CRT_BORDER_BLACK_LINEAR = new Float32Array(3);
-const CRT_BORDER_COLOR_LINEAR = new Float32Array(3);
+const modeBorderPaperPalette = [null];
+const crtBorderBlackLinear = new Float32Array(3);
+const crtBorderColorLinear = new Float32Array(3);
 
 function hasVisibleModeBorder(modeCfg) {
   const border = getModeBorder(modeCfg);
@@ -6768,8 +7057,8 @@ function getHiresPaperColorIndex() {
 function getModeBorderPalette(modeCfg) {
   if (!hasVisibleModeBorder(modeCfg)) return [];
   if (modeCfg && modeCfg.borderPalette === "paper") {
-    MODE_BORDER_PAPER_PALETTE[0] = PALETTE_NORMAL[getHiresPaperColorIndex()];
-    return MODE_BORDER_PAPER_PALETTE;
+    modeBorderPaperPalette[0] = PALETTE_NORMAL[getHiresPaperColorIndex()];
+    return modeBorderPaperPalette;
   }
   const palette = modeCfg && Array.isArray(modeCfg.borderPalette) ? modeCfg.borderPalette : null;
   return palette && palette.length ? palette : MODE_BORDER_BLACK_PALETTE;
@@ -6814,9 +7103,9 @@ function getCRTSettings(scale = getPreviewScale(), modeCfg = getDisplayedOutputM
   const noise = Number(UI.crtNoiseSlider.value);
   const borderColor = getCurrentBorderColorSRGB(modeCfg);
   if (borderColor) {
-    CRT_BORDER_COLOR_LINEAR[0] = srgbToLinear(borderColor[0]);
-    CRT_BORDER_COLOR_LINEAR[1] = srgbToLinear(borderColor[1]);
-    CRT_BORDER_COLOR_LINEAR[2] = srgbToLinear(borderColor[2]);
+    crtBorderColorLinear[0] = srgbToLinear(borderColor[0]);
+    crtBorderColorLinear[1] = srgbToLinear(borderColor[1]);
+    crtBorderColorLinear[2] = srgbToLinear(borderColor[2]);
   }
   return {
     enabled: crt,
@@ -6830,7 +7119,7 @@ function getCRTSettings(scale = getPreviewScale(), modeCfg = getDisplayedOutputM
     bloomSpread: Number(UI.crtBloomSpreadSlider.value),
     vignette,
     noise,
-    borderColor: borderColor ? CRT_BORDER_COLOR_LINEAR : null,
+    borderColor: borderColor ? crtBorderColorLinear : null,
     enableBleed: crt && bleed > 0,
     enableBloom: crt && bloom > 0,
     enableVignette: crt && vignette > 0,
@@ -6859,6 +7148,12 @@ function startCRTAnimation() {
   requestAnimationFrame(crtAnimationTick);
 }
 
+function updateCRTControlAvailability() {
+  const bloomEnabled = Number(UI.crtBloomSlider.value) > 0;
+  setControlVisible(UI.crtBloomSpreadRow, bloomEnabled);
+  setControlVisible(UI.crtBloomThresholdRow, bloomEnabled);
+}
+
 function initCRTControls() {
   UI.crtSwitch.onchange = applyCRTFrame;
   UI.scaleSlider.oninput = function () {
@@ -6869,16 +7164,45 @@ function initCRTControls() {
 
   initCRTBorderPicker();
 
-  UI.crtBrightnessSlider.oninput = function () { UI.crtBrightnessText.textContent = String(parseInt(UI.crtBrightnessSlider.value, 10)); requestCRTOutputRender(); };
-  UI.crtContrastSlider.oninput = function () { UI.crtContrastText.textContent = String(parseInt(UI.crtContrastSlider.value, 10)); requestCRTOutputRender(); };
-  UI.crtSaturationSlider.oninput = function () { UI.crtSaturationText.textContent = String(parseInt(UI.crtSaturationSlider.value, 10)); requestCRTOutputRender(); };
-  UI.crtNoiseSlider.oninput = function () { UI.crtNoiseText.textContent = String(parseInt(UI.crtNoiseSlider.value, 10)); requestCRTOutputRender(); };
-  UI.crtBleedSlider.oninput = function () { UI.crtBleedText.textContent = Number(UI.crtBleedSlider.value).toFixed(1); requestCRTOutputRender(); };
-  UI.crtBloomSlider.oninput = function () { UI.crtBloomText.textContent = Number(UI.crtBloomSlider.value).toFixed(1); requestCRTOutputRender(); };
-  UI.crtBloomSpreadSlider.oninput = function () { UI.crtBloomSpreadText.textContent = Number(UI.crtBloomSpreadSlider.value).toFixed(1); requestCRTOutputRender(); };
-  UI.crtBloomThresholdSlider.oninput = function () { UI.crtBloomThresholdText.textContent = Number(UI.crtBloomThresholdSlider.value).toFixed(2); requestCRTOutputRender(); };
-  UI.crtVignetteSlider.oninput = function () { UI.crtVignetteText.textContent = Number(UI.crtVignetteSlider.value).toFixed(1); requestCRTOutputRender(); };
+  UI.crtBrightnessSlider.oninput = function () {
+    UI.crtBrightnessText.textContent = String(parseInt(UI.crtBrightnessSlider.value, 10));
+    requestCRTOutputRender();
+  };
+  UI.crtContrastSlider.oninput = function () {
+    UI.crtContrastText.textContent = String(parseInt(UI.crtContrastSlider.value, 10));
+    requestCRTOutputRender();
+  };
+  UI.crtSaturationSlider.oninput = function () {
+    UI.crtSaturationText.textContent = String(parseInt(UI.crtSaturationSlider.value, 10));
+    requestCRTOutputRender();
+  };
+  UI.crtNoiseSlider.oninput = function () {
+    UI.crtNoiseText.textContent = String(parseInt(UI.crtNoiseSlider.value, 10));
+    requestCRTOutputRender();
+  };
+  UI.crtBleedSlider.oninput = function () {
+    UI.crtBleedText.textContent = Number(UI.crtBleedSlider.value).toFixed(1);
+    requestCRTOutputRender();
+  };
+  UI.crtBloomSlider.oninput = function () {
+    UI.crtBloomText.textContent = Number(UI.crtBloomSlider.value).toFixed(1);
+    updateCRTControlAvailability();
+    requestCRTOutputRender();
+  };
+  UI.crtBloomSpreadSlider.oninput = function () {
+    UI.crtBloomSpreadText.textContent = Number(UI.crtBloomSpreadSlider.value).toFixed(1);
+    requestCRTOutputRender();
+  };
+  UI.crtBloomThresholdSlider.oninput = function () {
+    UI.crtBloomThresholdText.textContent = Number(UI.crtBloomThresholdSlider.value).toFixed(2);
+    requestCRTOutputRender();
+  };
+  UI.crtVignetteSlider.oninput = function () {
+    UI.crtVignetteText.textContent = Number(UI.crtVignetteSlider.value).toFixed(1);
+    requestCRTOutputRender();
+  };
   UI.crtScanlinesSwitch.onchange = requestCRTOutputRender;
+  updateCRTControlAvailability();
   applyCRTFrame();
 }
 
@@ -6940,7 +7264,8 @@ function initCRTBorderPicker() {
 
 function applyCRTFrame() {
   initCRTBorderPicker();
-  if (UI.crtSwitch.checked) {
+  const crtEnabled = UI.crtSwitch.checked;
+  if (crtEnabled) {
     UI.outputPanel.classList.add("crt-enabled");
   } else {
     UI.outputPanel.classList.remove("crt-enabled");
@@ -7049,16 +7374,31 @@ function renderInputFullscreenCanvas() {
   if (!sourceImage || !cropRect || !sourceImageLinear) return;
   const fs = getFullscreenCanvas("input-webgl");
   const viewport = getFullscreenViewportSize();
-  const scale = Math.max(0.01, Math.min(viewport.width / sourceImage.width, viewport.height / sourceImage.height));
-  const outW = Math.max(1, Math.round(sourceImage.width * scale));
-  const outH = Math.max(1, Math.round(sourceImage.height * scale));
+  const cropW = Math.max(1, cropRect.w);
+  const cropH = Math.max(1, cropRect.h);
+  const scale = Math.max(0.01, Math.min(viewport.width / cropW, viewport.height / cropH));
+  const outW = Math.max(1, Math.round(cropW * scale));
+  const outH = Math.max(1, Math.round(cropH * scale));
   fs.width = outW;
   fs.height = outH;
-  fs.style.width = outW + "px";
-  fs.style.height = outH + "px";
+  fs.style.width = `${outW}px`;
+  fs.style.height = `${outH}px`;
   fs.style.maxWidth = "none";
   fs.style.maxHeight = "none";
-  renderInputPreviewCanvas(fs, outW, outH, scale, { smooth: false });
+  const renderer = getWebGLCanvasRenderer(fs);
+  webglCanvasRenderLinearRGBA(
+    renderer,
+    sourceImageLinear.pixels,
+    sourceImageLinear.width,
+    sourceImageLinear.height,
+    outW,
+    outH,
+    {
+      adjustments: getAdjustmentParams(),
+      smooth: false,
+      sourceRect: [cropRect.x, cropRect.y, cropRect.w, cropRect.h],
+    }
+  );
 }
 
 function renderActiveFullscreenCanvas() {
@@ -7163,7 +7503,7 @@ function setOutputViewMode(mode) {
 UI.snapshotBtn.addEventListener("click", () => {
   const state = getActiveOutputState();
   if (!state || !state.pixels) return;
-  const modeCfg = state.modeCfg || MODES[state.mode] || MODES.standard;
+  const modeCfg = state.modeCfg || modes[state.mode] || modes.standard;
   abSnapshot = {
     pixels: new Float32Array(state.pixels),
     w: state.w,
@@ -7241,7 +7581,10 @@ function setProfileControl(control, value) {
 
 function applyProfile(p) {
   if (!p) return;
-  if (p.mode && (MODES[p.mode])) { UI.displayMode.value = p.mode; currentMode = p.mode; }
+  if (p.mode && (modes[p.mode])) {
+    UI.displayMode.value = p.mode;
+    currentMode = p.mode;
+  }
   setProfileControl(UI.ditherMode, p.ditherMode);
   setProfileControl(UI.colorStrategy, p.colorStrategy);
   setProfileControl(UI.brightness, p.brightness);
@@ -7258,7 +7601,10 @@ function applyProfile(p) {
   setProfileControl(UI.paperColor, p.paperColor);
   setProfileControl(UI.hiresBright, p.hiresBright);
   setProfileControl(UI.blockBlur, p.blockBlur);
-  if (p.lockAspect != null) { UI.lockAspect.checked = !!p.lockAspect; cropAspectLocked = !!p.lockAspect; }
+  if (p.lockAspect != null) {
+    UI.lockAspect.checked = !!p.lockAspect;
+    cropAspectLocked = !!p.lockAspect;
+  }
   if (p.cropStretch != null) UI.cropStretch.checked = !!p.cropStretch;
   if (p.showGrid != null) UI.showGrid.checked = !!p.showGrid;
   if (p.crtFrame != null) UI.crtSwitch.checked = !!p.crtFrame;
@@ -7325,9 +7671,13 @@ function applyProfile(p) {
   UI.crtVignetteText.textContent = Number(UI.crtVignetteSlider.value).toFixed(1);
   initCRTBorderPicker();
   updateModeUI();
+  updateCRTControlAvailability();
   initPaletteStrip();
   applyCRTFrame();
-  if (sourceImage) { renderCropOverlay(); convert(); }
+  if (sourceImage) {
+    renderCropOverlay();
+    convert();
+  }
 }
 
 UI.exportProfileBtn.addEventListener("click", () => {
@@ -7347,7 +7697,7 @@ UI.profileFileInput.addEventListener("change", e => {
       applyProfile(p);
       UI.statusText.textContent = "Profile imported.";
     } catch (err) {
-      alert("Failed to parse profile: " + err.message);
+      alert(`Failed to parse profile: ${err.message}`);
     }
   };
   reader.readAsText(file);
@@ -7372,7 +7722,7 @@ UI.modesFileInput.addEventListener("change", e => {
           if (cfg[k] == null) missing += (missing ? ", " : "") + k;
         }
         if (missing) {
-          console.warn("Skipping custom mode \"" + name + "\" — missing: " + missing);
+          console.warn(`Skipping custom mode "${name}" — missing: ${missing}`);
           continue;
         }
         const modeCfg = {};
@@ -7381,16 +7731,16 @@ UI.modesFileInput.addEventListener("change", e => {
         }
         modeCfg.custom = true;
         modeCfg.supportsTap = false;
-        MODES[name] = modeCfg;
-        PALETTES[name] = srgbToLinearPalettes(MODES[name].palettes);
+        modes[name] = modeCfg;
+        palettes[name] = srgbToLinearPalettes(modes[name].palettes);
         customModeNames.add(name);
         added++;
       }
       rebuildModeSelect();
       if (parsed.settings) applyProfile(parsed.settings);
-      UI.statusText.textContent = "Imported " + added + " custom mode(s).";
+      UI.statusText.textContent = `Imported ${added} custom mode(s).`;
     } catch (err) {
-      alert("Failed to parse modes JSON: " + err.message);
+      alert(`Failed to parse modes JSON: ${err.message}`);
     }
   };
   reader.readAsText(file);
@@ -7406,10 +7756,10 @@ function rebuildModeSelect() {
   const og = document.createElement("optgroup");
   og.label = "Custom";
   for (const name of customModeNames) {
-    const cfg = MODES[name];
+    const cfg = modes[name];
     const opt = document.createElement("option");
     opt.value = name;
-    opt.textContent = (cfg.label || name) + " (" + cfg.w + "×" + cfg.h + ")";
+    opt.textContent = `${cfg.label || name} (${cfg.w}×${cfg.h})`;
     og.appendChild(opt);
   }
   sel.appendChild(og);
@@ -7660,7 +8010,7 @@ function gpuCreateFramebuffer(gpu, tex) {
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
   const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  if (status !== gl.FRAMEBUFFER_COMPLETE) throw new Error("Incomplete float framebuffer: " + status);
+  if (status !== gl.FRAMEBUFFER_COMPLETE) throw new Error(`Incomplete float framebuffer: ${status}`);
   return fbo;
 }
 
@@ -8002,19 +8352,19 @@ function createGPUProgram(gl, vertGLSL, fragGLSL, id) {
       const clean = fragLog.replace("\0", "").trim();
       if (clean) details += (details ? "\n" : "") + clean;
     }
-    throw new Error(id + " shader failed: " + details);
+    throw new Error(`${id} shader failed: ${details}`);
   }
   return prog;
 }
 
-const WEBGL_CANVAS_RENDERERS = new WeakMap();
+const webglCanvasRenderers = new WeakMap();
 
 function getWebGLCanvasRenderer(canvas, options = {}) {
   const preserveDrawingBuffer = !!options.preserveDrawingBuffer;
-  let renderer = WEBGL_CANVAS_RENDERERS.get(canvas);
+  let renderer = webglCanvasRenderers.get(canvas);
   if (!renderer || renderer.preserveDrawingBuffer !== preserveDrawingBuffer) {
     renderer = createWebGLCanvasRenderer(canvas, { preserveDrawingBuffer });
-    WEBGL_CANVAS_RENDERERS.set(canvas, renderer);
+    webglCanvasRenderers.set(canvas, renderer);
   }
   return renderer;
 }
@@ -8039,6 +8389,7 @@ function createWebGLCanvasRenderer(canvas, { preserveDrawingBuffer = false } = {
       texSlot: gl.getUniformLocation(imageProgram, "u_texture"),
       canvasSize: gl.getUniformLocation(imageProgram, "u_canvasSize"),
       rect: gl.getUniformLocation(imageProgram, "u_rect"),
+      sourceRect: gl.getUniformLocation(imageProgram, "u_sourceRect"),
       brightness: gl.getUniformLocation(imageProgram, "u_brightness"),
       contrast: gl.getUniformLocation(imageProgram, "u_contrast"),
       saturation: gl.getUniformLocation(imageProgram, "u_saturation"),
@@ -8073,14 +8424,14 @@ function webglCanvasResize(renderer, width, height) {
   height = Math.max(1, Math.round(height));
   if (renderer.canvas.width !== width) renderer.canvas.width = width;
   if (renderer.canvas.height !== height) renderer.canvas.height = height;
-  renderer.canvas.style.width = width + "px";
-  renderer.canvas.style.height = height + "px";
+  renderer.canvas.style.width = `${width}px`;
+  renderer.canvas.style.height = `${height}px`;
   renderer.canvas.style.maxWidth = "none";
   renderer.canvas.style.maxHeight = "none";
   renderer.gl.viewport(0, 0, width, height);
 }
 
-function webglCanvasClear(renderer, width, height, color = WEBGL_CLEAR_TRANSPARENT) {
+function webglCanvasClear(renderer, width, height, color = webglClearTransparent) {
   const gl = renderer.gl;
   webglCanvasResize(renderer, width, height);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -8172,8 +8523,9 @@ function webglCanvasRenderLinearRGBA(renderer, pixels, sourceWidth, sourceHeight
   const gl = renderer.gl;
   const adjustments = options.adjustments || NEUTRAL_ADJUSTMENTS;
   const smooth = !!options.smooth;
-  const clearColor = options.clearColor || WEBGL_CLEAR_TRANSPARENT;
+  const clearColor = options.clearColor || webglClearTransparent;
   const cropRect = options.cropRect;
+  const sourceRect = options.sourceRect;
   const cropOverlayAlpha = Number(options.cropOverlayAlpha) || 0;
   webglCanvasClear(renderer, displayWidth, displayHeight, clearColor);
   webglCanvasUploadLinearRGBA(renderer, pixels, sourceWidth, sourceHeight, smooth);
@@ -8182,12 +8534,26 @@ function webglCanvasRenderLinearRGBA(renderer, pixels, sourceWidth, sourceHeight
   gl.uniform1i(renderer.imageUniforms.texSlot, 0);
   gl.uniform2f(renderer.imageUniforms.canvasSize, renderer.canvas.width, renderer.canvas.height);
   gl.uniform4f(renderer.imageUniforms.rect, 0, 0, renderer.canvas.width, renderer.canvas.height);
+  if (sourceRect) {
+    gl.uniform4f(
+      renderer.imageUniforms.sourceRect,
+      sourceRect[0] / sourceWidth,
+      sourceRect[1] / sourceHeight,
+      sourceRect[2] / sourceWidth,
+      sourceRect[3] / sourceHeight
+    );
+  } else {
+    gl.uniform4f(renderer.imageUniforms.sourceRect, 0, 0, 1, 1);
+  }
   gl.uniform1f(renderer.imageUniforms.brightness, adjustments.brightness);
   gl.uniform1f(renderer.imageUniforms.contrast, adjustments.contrast);
   gl.uniform1f(renderer.imageUniforms.saturation, adjustments.saturation);
   gl.uniform1f(renderer.imageUniforms.gamma, adjustments.gamma);
-  if (cropRect) gl.uniform4f(renderer.imageUniforms.cropRect, cropRect[0], cropRect[1], cropRect[2], cropRect[3]);
-  else gl.uniform4f(renderer.imageUniforms.cropRect, 0, 0, displayWidth, displayHeight);
+  if (cropRect) {
+    gl.uniform4f(renderer.imageUniforms.cropRect, cropRect[0], cropRect[1], cropRect[2], cropRect[3]);
+  } else {
+    gl.uniform4f(renderer.imageUniforms.cropRect, 0, 0, displayWidth, displayHeight);
+  }
   gl.uniform1f(renderer.imageUniforms.cropOverlayAlpha, cropOverlayAlpha);
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, renderer.texture);
@@ -8222,6 +8588,7 @@ precision highp float;
 
 uniform vec2 u_canvasSize;
 uniform vec4 u_rect;
+uniform vec4 u_sourceRect;
 
 out vec2 v_texCoord;
 out vec2 v_pixelCoord;
@@ -8238,7 +8605,7 @@ void main() {
   vec2 pixel = u_rect.xy + coord * u_rect.zw;
   vec2 clip = vec2(pixel.x / u_canvasSize.x * 2.0 - 1.0, 1.0 - pixel.y / u_canvasSize.y * 2.0);
   gl_Position = vec4(clip, 0.0, 1.0);
-  v_texCoord = coord;
+  v_texCoord = u_sourceRect.xy + coord * u_sourceRect.zw;
   v_pixelCoord = pixel;
 }`;
 
@@ -8316,32 +8683,32 @@ const CRT_BLOOM_SCALE = 0.25;
 const CRT_UBO_BINDING_POINT = 1;
 
 const CRT_UBO = {
-  Left: 0,
-  Top: 1,
-  Right: 2,
-  Bottom: 3,
-  BorderRed: 4,
-  BorderGreen: 5,
-  BorderBlue: 6,
-  TimeSec: 7,
-  TexelWidth: 8,
-  TexelHeight: 9,
-  Brightness: 10,
-  Contrast: 11,
-  Saturation: 12,
-  Bleed: 13,
-  BloomThreshold: 14,
-  Bloom: 15,
-  BloomSpread: 16,
-  Vignette: 17,
-  Noise: 18,
-  Scanlines: 19,
-  EnableBorder: 20,
-  EnableBleed: 21,
-  EnableBloom: 22,
-  EnableVignette: 23,
-  EnableNoise: 24,
-  EnableScanlines: 25,
+  left: 0,
+  top: 1,
+  right: 2,
+  bottom: 3,
+  borderRed: 4,
+  borderGreen: 5,
+  borderBlue: 6,
+  timeSec: 7,
+  texelWidth: 8,
+  texelHeight: 9,
+  brightness: 10,
+  contrast: 11,
+  saturation: 12,
+  bleed: 13,
+  bloomThreshold: 14,
+  bloom: 15,
+  bloomSpread: 16,
+  vignette: 17,
+  noise: 18,
+  scanlines: 19,
+  enableBorder: 20,
+  enableBleed: 21,
+  enableBloom: 22,
+  enableVignette: 23,
+  enableNoise: 24,
+  enableScanlines: 25,
 };
 
 function createCRTOutputRenderer(canvas) {
@@ -8496,7 +8863,7 @@ function crtCreateFBO(renderer, texture) {
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
   const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  if (status !== gl.FRAMEBUFFER_COMPLETE) throw new Error("Incomplete CRT framebuffer: " + status);
+  if (status !== gl.FRAMEBUFFER_COMPLETE) throw new Error(`Incomplete CRT framebuffer: ${status}`);
   return fb;
 }
 
@@ -8548,38 +8915,38 @@ function crtRender(renderer, shaderTime, settings = getCRTSettings()) {
   const targetWidth = renderer.targetWidth;
   const targetHeight = renderer.targetHeight;
   const border = !!settings.borderColor;
-  const borderColor = settings.borderColor || CRT_BORDER_BLACK_LINEAR;
+  const borderColor = settings.borderColor || crtBorderBlackLinear;
   const imageLeft = border ? renderer.borderLeft : 0;
   const imageTop = border ? renderer.borderTop : 0;
   const imageRight = imageLeft + renderer.imageWidth;
   const imageBottom = imageTop + renderer.imageHeight;
 
-  renderer.uboData[CRT_UBO.Left] = imageLeft / targetWidth;
-  renderer.uboData[CRT_UBO.Top] = imageTop / targetHeight;
-  renderer.uboData[CRT_UBO.Right] = imageRight / targetWidth;
-  renderer.uboData[CRT_UBO.Bottom] = imageBottom / targetHeight;
-  renderer.uboData[CRT_UBO.BorderRed] = borderColor[0];
-  renderer.uboData[CRT_UBO.BorderGreen] = borderColor[1];
-  renderer.uboData[CRT_UBO.BorderBlue] = borderColor[2];
-  renderer.uboData[CRT_UBO.TimeSec] = shaderTime;
-  renderer.uboData[CRT_UBO.TexelWidth] = 1 / targetWidth;
-  renderer.uboData[CRT_UBO.TexelHeight] = 1 / targetHeight;
-  renderer.uboData[CRT_UBO.Brightness] = settings.brightness;
-  renderer.uboData[CRT_UBO.Contrast] = settings.contrast;
-  renderer.uboData[CRT_UBO.Saturation] = settings.saturation;
-  renderer.uboData[CRT_UBO.Bleed] = settings.bleed;
-  renderer.uboData[CRT_UBO.BloomThreshold] = settings.bloomThreshold;
-  renderer.uboData[CRT_UBO.Bloom] = settings.bloom;
-  renderer.uboData[CRT_UBO.BloomSpread] = settings.bloomSpread;
-  renderer.uboData[CRT_UBO.Vignette] = settings.vignette;
-  renderer.uboData[CRT_UBO.Noise] = settings.noise;
-  renderer.uboData[CRT_UBO.Scanlines] = targetHeight;
-  renderer.uboData[CRT_UBO.EnableBorder] = Number(border);
-  renderer.uboData[CRT_UBO.EnableBleed] = Number(settings.enableBleed);
-  renderer.uboData[CRT_UBO.EnableBloom] = Number(settings.enableBloom);
-  renderer.uboData[CRT_UBO.EnableVignette] = Number(settings.enableVignette);
-  renderer.uboData[CRT_UBO.EnableNoise] = Number(settings.enableNoise);
-  renderer.uboData[CRT_UBO.EnableScanlines] = Number(settings.enableScanlines);
+  renderer.uboData[CRT_UBO.left] = imageLeft / targetWidth;
+  renderer.uboData[CRT_UBO.top] = imageTop / targetHeight;
+  renderer.uboData[CRT_UBO.right] = imageRight / targetWidth;
+  renderer.uboData[CRT_UBO.bottom] = imageBottom / targetHeight;
+  renderer.uboData[CRT_UBO.borderRed] = borderColor[0];
+  renderer.uboData[CRT_UBO.borderGreen] = borderColor[1];
+  renderer.uboData[CRT_UBO.borderBlue] = borderColor[2];
+  renderer.uboData[CRT_UBO.timeSec] = shaderTime;
+  renderer.uboData[CRT_UBO.texelWidth] = 1 / targetWidth;
+  renderer.uboData[CRT_UBO.texelHeight] = 1 / targetHeight;
+  renderer.uboData[CRT_UBO.brightness] = settings.brightness;
+  renderer.uboData[CRT_UBO.contrast] = settings.contrast;
+  renderer.uboData[CRT_UBO.saturation] = settings.saturation;
+  renderer.uboData[CRT_UBO.bleed] = settings.bleed;
+  renderer.uboData[CRT_UBO.bloomThreshold] = settings.bloomThreshold;
+  renderer.uboData[CRT_UBO.bloom] = settings.bloom;
+  renderer.uboData[CRT_UBO.bloomSpread] = settings.bloomSpread;
+  renderer.uboData[CRT_UBO.vignette] = settings.vignette;
+  renderer.uboData[CRT_UBO.noise] = settings.noise;
+  renderer.uboData[CRT_UBO.scanlines] = targetHeight;
+  renderer.uboData[CRT_UBO.enableBorder] = Number(border);
+  renderer.uboData[CRT_UBO.enableBleed] = Number(settings.enableBleed);
+  renderer.uboData[CRT_UBO.enableBloom] = Number(settings.enableBloom);
+  renderer.uboData[CRT_UBO.enableVignette] = Number(settings.enableVignette);
+  renderer.uboData[CRT_UBO.enableNoise] = Number(settings.enableNoise);
+  renderer.uboData[CRT_UBO.enableScanlines] = Number(settings.enableScanlines);
 
   gl.bindBuffer(gl.UNIFORM_BUFFER, renderer.uboBuffer);
   gl.bufferSubData(gl.UNIFORM_BUFFER, 0, renderer.uboData);
@@ -8625,8 +8992,8 @@ function crtRender(renderer, shaderTime, settings = getCRTSettings()) {
     gl.canvas.width = viewportPixelWidth;
     gl.canvas.height = viewportPixelHeight;
   }
-  gl.canvas.style.width = viewportCssWidth + "px";
-  gl.canvas.style.height = viewportCssHeight + "px";
+  gl.canvas.style.width = `${viewportCssWidth}px`;
+  gl.canvas.style.height = `${viewportCssHeight}px`;
   gl.canvas.style.maxWidth = "none";
   gl.canvas.style.maxHeight = "none";
 
@@ -8884,21 +9251,24 @@ let hilbertOrderCacheWidth = 0;
 let hilbertOrderCacheHeight = 0;
 let hilbertOrderCache = null;
 
-// Returns x,y pairs along the smallest power-of-2 Hilbert curve covering W,H.
-function hilbertOrder(W, H) {
-  if (hilbertOrderCache && hilbertOrderCacheWidth === W && hilbertOrderCacheHeight === H) return hilbertOrderCache;
-  let N = 1;
-  while (N < W || N < H) N *= 2;
-  const total = N * N;
-  const out = new Int32Array(W * H * 2);
+// Returns x,y pairs along the smallest power-of-2 Hilbert curve covering width,height.
+function hilbertOrder(width, height) {
+  if (hilbertOrderCache && hilbertOrderCacheWidth === width && hilbertOrderCacheHeight === height) return hilbertOrderCache;
+  let curveSize = 1;
+  while (curveSize < width || curveSize < height) curveSize *= 2;
+  const total = curveSize * curveSize;
+  const out = new Int32Array(width * height * 2);
   let o = 0;
   for (let d = 0; d < total; d++) {
     let t = d, x = 0, y = 0;
-    for (let s = 1; s < N; s *= 2) {
+    for (let s = 1; s < curveSize; s *= 2) {
       const rx = 1 & (t >> 1);
       const ry = 1 & (t ^ rx);
       if (ry === 0) {
-        if (rx === 1) { x = s - 1 - x; y = s - 1 - y; }
+        if (rx === 1) {
+          x = s - 1 - x;
+          y = s - 1 - y;
+        }
         const swap = x;
         x = y;
         y = swap;
@@ -8907,13 +9277,13 @@ function hilbertOrder(W, H) {
       y += s * ry;
       t >>= 2;
     }
-    if (x < W && y < H) {
+    if (x < width && y < height) {
       out[o++] = x;
       out[o++] = y;
     }
   }
-  hilbertOrderCacheWidth = W;
-  hilbertOrderCacheHeight = H;
+  hilbertOrderCacheWidth = width;
+  hilbertOrderCacheHeight = height;
   hilbertOrderCache = o === out.length ? out : out.subarray(0, o);
   return hilbertOrderCache;
 }
@@ -8970,8 +9340,7 @@ function getBestWeightedColorPair(out, pixels, width, bx, by, bw, bh, palette, c
           t = (RGB_DISTANCE_WEIGHT_R * (avgR - inkColor[0]) * dr
             + RGB_DISTANCE_WEIGHT_G * (avgG - inkColor[1]) * dg
             + RGB_DISTANCE_WEIGHT_B * (avgB - inkColor[2]) * db) / lineLength2;
-          if (t < 0) t = 0;
-          else if (t > 1) t = 1;
+          if (t < 0) t = 0; else if (t > 1) t = 1;
           if (steps > 0) t = Math.round(t * steps) * stepScale;
         }
         const r = inkColor[0] + t * dr;
@@ -9021,21 +9390,21 @@ function getBestWeightedColorPair(out, pixels, width, bx, by, bw, bh, palette, c
   return bestError;
 }
 
-const TV_TEST_PATTERN_TOP_BARS = new Uint8Array([
+const tvTestPatternTopBars = new Uint8Array([
   192, 192, 192, 192, 192, 0, 0, 192, 192, 0, 192, 0, 192, 0, 192, 192, 0, 0, 0, 0, 192,
 ]);
-const TV_TEST_PATTERN_MID_BARS = new Uint8Array([
+const tvTestPatternMidBars = new Uint8Array([
   0, 0, 192, 16, 16, 16, 192, 0, 192, 16, 16, 16, 0, 192, 192, 16, 16, 16, 192, 192, 192,
 ]);
-const TV_TEST_PATTERN_BOTTOM_BARS = new Uint8Array([
+const tvTestPatternBottomBars = new Uint8Array([
   0, 32, 96, 255, 255, 255, 64, 0, 96, 16, 16, 16, 8, 8, 8, 24, 24, 24, 40, 40, 40, 16, 16, 16,
 ]);
 
 function createTVTestPattern(width, height) {
   const pixels = new Uint8Array(width * height * 3);
-  const topBars = TV_TEST_PATTERN_TOP_BARS.length / 3;
-  const midBars = TV_TEST_PATTERN_MID_BARS.length / 3;
-  const bottomBars = TV_TEST_PATTERN_BOTTOM_BARS.length / 3;
+  const topBars = tvTestPatternTopBars.length / 3;
+  const midBars = tvTestPatternMidBars.length / 3;
+  const bottomBars = tvTestPatternBottomBars.length / 3;
   const topH = Math.floor(height * 0.58);
   const midH = Math.floor(height * 0.16);
   const checkerSize = 8;
@@ -9045,20 +9414,20 @@ function createTVTestPattern(width, height) {
       let r, g, b;
       if (y < topH) {
         const bar = Math.min(topBars - 1, Math.floor(x * topBars / width)) * 3;
-        r = TV_TEST_PATTERN_TOP_BARS[bar];
-        g = TV_TEST_PATTERN_TOP_BARS[bar + 1];
-        b = TV_TEST_PATTERN_TOP_BARS[bar + 2];
+        r = tvTestPatternTopBars[bar];
+        g = tvTestPatternTopBars[bar + 1];
+        b = tvTestPatternTopBars[bar + 2];
       } else if (y < topH + midH) {
         const bar = Math.min(midBars - 1, Math.floor(x * midBars / width)) * 3;
-        r = TV_TEST_PATTERN_MID_BARS[bar];
-        g = TV_TEST_PATTERN_MID_BARS[bar + 1];
-        b = TV_TEST_PATTERN_MID_BARS[bar + 2];
+        r = tvTestPatternMidBars[bar];
+        g = tvTestPatternMidBars[bar + 1];
+        b = tvTestPatternMidBars[bar + 2];
       } else {
         const bar = Math.min(bottomBars - 1, Math.floor(x * bottomBars / width)) * 3;
         const check = ((Math.floor(x / checkerSize) + Math.floor(y / checkerSize)) & 1) ? 12 : 0;
-        r = Math.min(255, TV_TEST_PATTERN_BOTTOM_BARS[bar] + check);
-        g = Math.min(255, TV_TEST_PATTERN_BOTTOM_BARS[bar + 1] + check);
-        b = Math.min(255, TV_TEST_PATTERN_BOTTOM_BARS[bar + 2] + check);
+        r = Math.min(255, tvTestPatternBottomBars[bar] + check);
+        g = Math.min(255, tvTestPatternBottomBars[bar + 1] + check);
+        b = Math.min(255, tvTestPatternBottomBars[bar + 2] + check);
       }
       const i = (y * width + x) * 3;
       pixels[i] = r;
@@ -9074,7 +9443,7 @@ function initOutputTestPattern() {
   screenWidth = 320;
   screenHeight = 240;
   convertedLinearPixels = srgbRGBToLinearRGB(createTVTestPattern(screenWidth, screenHeight));
-  const modeCfg = MODES[currentMode] ?? MODES.standard;
+  const modeCfg = modes[currentMode] ?? modes.standard;
   activeOutputState = {
     pixels: convertedLinearPixels,
     w: screenWidth,

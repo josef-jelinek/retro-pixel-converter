@@ -71,6 +71,8 @@ Color search strategies are mode-aware:
 
 Threshold-based dithers nudge non-uniform blocks toward distinct color pairs so gradients can dither instead of collapsing into flat color.
 
+OkLab color distance is experimental and is usually most helpful in higher-color modes with less saturated palettes, such as C64 and Pico-8; it is not generally better for every mode.
+
 ## Display Geometry
 
 The app displays each mode as part of a 4:3 visible screen, using border dimensions to derive the pixel aspect ratio:
