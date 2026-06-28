@@ -1859,6 +1859,7 @@ let sourceImageLinear = null; // { pixels: Float32Array RGBA in linear space, wi
 let convertedLinearPixels = null; // Float32Array of converted image (native res, linear RGB)
 let activeOutputState = null;  // Last completed active output: pixels plus matching mode metadata.
 let activeOutputRevision = 0;  // Increments when reused output buffers receive new image data.
+let outputExportEpoch = 0;     // Increments when pending async image exports should be ignored.
 let screenWidth = 256;
 let screenHeight = 192;
 let currentMode = "standard";
@@ -2559,11 +2560,16 @@ function loadImage(file) {
   state.modeMeta = null;
   state.scrBytes = null;
   state.tapBlocks = null;
+  state.outputRevision = 0;
   sourceImage = null;
   sourceImageLinear = null;
   convertedLinearPixels = null;
   activeOutputState = null;
   binaryExportState = null;
+  outputExportEpoch++;
+  outputViewMode = "active";
+  abSnapshot = null;
+  updateOutputViewControls();
   lastImageAnalysis = null;
   updateAutoBadge(null, null);
   setExportButtonsEnabled(false, currentMode);
@@ -3252,7 +3258,8 @@ function updateModeUI() {
     const label = ext.startsWith("_") ? ext : `.${ext}`;
     btn.textContent = `Download ${label}`;
   }
-  setExportButtonsEnabled(!!binaryExportState && binaryExportState.mode === mode, mode);
+  const exportState = getCurrentBinaryExportState();
+  setExportButtonsEnabled(!!exportState && exportState.mode === mode, mode);
   updateOutputViewControls();
 }
 updateModeUI();
@@ -3783,10 +3790,12 @@ function convert() {
   state.modeMeta = null;
   state.scrBytes = null;
   state.tapBlocks = null;
+  state.outputRevision = 0;
 
   currentMode = state.mode;
   UI.statusText.textContent = "Converting...";
   binaryExportState = null;
+  outputExportEpoch++;
   setExportButtonsEnabled(false, currentMode);
   scheduleOutputGenerationNotice(state.id);
 
@@ -6057,6 +6066,7 @@ function pipelineStageFinishRenderConversionResult(id) {
   screenHeight = state.screenHeight;
   convertedLinearPixels = resultLinear;
   activeOutputRevision += 1;
+  state.outputRevision = activeOutputRevision;
   activeOutputState = {
     pixels: resultLinear,
     w: state.screenWidth,
@@ -6065,7 +6075,7 @@ function pipelineStageFinishRenderConversionResult(id) {
     modeCfg: state.modeCfg,
     displayAspect: getModeDisplayAspect(state.modeCfg),
     outScale: getOutputScale(state.modeCfg),
-    revision: activeOutputRevision,
+    revision: state.outputRevision,
   };
   binaryExportState = state;
 
@@ -7060,9 +7070,24 @@ function reconstructBlockColors(blockIndices, palette) {
   return blockColors;
 }
 
-function buildBinaryExportData() {
+function getCurrentBinaryExportState() {
   const state = binaryExportState;
-  if (!state || !state.resultLinear) return null;
+  const active = getActiveOutputState();
+  if (
+    !state ||
+    !state.resultLinear ||
+    !active ||
+    active.pixels !== state.resultLinear ||
+    (active.revision ?? 0) !== (state.outputRevision ?? -1)
+  ) {
+    return null;
+  }
+  return state;
+}
+
+function buildBinaryExportData() {
+  const state = getCurrentBinaryExportState();
+  if (!state) return null;
   if (state.scrBytes) return state;
 
   const mode = state.mode;
@@ -7159,12 +7184,23 @@ function exportImage(format, scale) {
   const outH = Math.round(state.h * scale * stretchY);
   const renderer = getExportImageRenderer();
   const canvas = renderer.canvas;
-  webglCanvasRenderLinearRGB(renderer, state.pixels, state.w, state.h, outW, outH);
+  const revision = state.revision ?? 0;
+  const exportEpoch = outputExportEpoch;
+  webglCanvasRenderLinearRGB(renderer, state.pixels, state.w, state.h, outW, outH, { revision });
 
   const mimeType = format === "jpg" ? "image/jpeg" : "image/png";
   const ext = format === "jpg" ? "jpg" : "png";
   canvas.toBlob(blob => {
     if (!blob) return;
+    const current = getActiveOutputState();
+    if (
+      outputExportEpoch !== exportEpoch ||
+      !current ||
+      current.pixels !== state.pixels ||
+      (current.revision ?? 0) !== revision
+    ) {
+      return;
+    }
     downloadBlob(blob, `image_${modeCfg.label}_${outW}x${outH}.${ext}`);
   }, mimeType, format === "jpg" ? 0.95 : undefined);
 }
@@ -7194,8 +7230,9 @@ UI.exportTap.addEventListener("click", () => {
 // Pico-8 hex .txt export — 128 rows of 128 hex digits (one per pixel)
 // suitable for pasting into a Pico-8 cartridge __gfx__ section.
 UI.exportPico8Txt.addEventListener("click", () => {
-  if (!binaryExportState || binaryExportState.mode !== "pico8") return;
-  const pixels = ensureStateSRGBPixels(binaryExportState);
+  const state = getCurrentBinaryExportState();
+  if (!state || state.mode !== "pico8") return;
+  const pixels = ensureStateSRGBPixels(state);
   if (!pixels) return;
   const txtBytes = generatePico8Txt(pixels);
   downloadBlob(new Blob([txtBytes], { type: "text/plain" }),
@@ -8521,6 +8558,7 @@ function createWebGLCanvasRenderer(canvas, { preserveDrawingBuffer = false } = {
     linearRGBSource: null,
     linearRGBWidth: 0,
     linearRGBHeight: 0,
+    linearRGBRevision: -1,
     linearRGBRGBA: null,
   };
 }
@@ -8573,8 +8611,13 @@ function webglCanvasUploadLinearRGBA(renderer, pixels, width, height, smooth) {
   renderer.textureFilter = filter;
 }
 
-function webglCanvasLinearRGBAFromLinearRGB(renderer, pixels, width, height) {
-  if (renderer.linearRGBSource === pixels && renderer.linearRGBWidth === width && renderer.linearRGBHeight === height) {
+function webglCanvasLinearRGBAFromLinearRGB(renderer, pixels, width, height, revision = 0) {
+  if (
+    renderer.linearRGBSource === pixels &&
+    renderer.linearRGBWidth === width &&
+    renderer.linearRGBHeight === height &&
+    renderer.linearRGBRevision === revision
+  ) {
     return renderer.linearRGBRGBA;
   }
   const out = ensureFloat32Buffer(renderer.linearRGBRGBA, width * height * 4);
@@ -8589,13 +8632,14 @@ function webglCanvasLinearRGBAFromLinearRGB(renderer, pixels, width, height) {
   renderer.linearRGBSource = pixels;
   renderer.linearRGBWidth = width;
   renderer.linearRGBHeight = height;
+  renderer.linearRGBRevision = revision;
   renderer.linearRGBRGBA = out;
   renderer.texturePixels = null;
   return out;
 }
 
 function webglCanvasRenderLinearRGB(renderer, pixels, sourceWidth, sourceHeight, displayWidth, displayHeight, options = {}) {
-  const linearRGBA = webglCanvasLinearRGBAFromLinearRGB(renderer, pixels, sourceWidth, sourceHeight);
+  const linearRGBA = webglCanvasLinearRGBAFromLinearRGB(renderer, pixels, sourceWidth, sourceHeight, options.revision ?? 0);
   webglCanvasRenderLinearRGBA(renderer, linearRGBA, sourceWidth, sourceHeight, displayWidth, displayHeight, options);
 }
 
