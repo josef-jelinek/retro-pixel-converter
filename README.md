@@ -9,7 +9,7 @@ A dependency-free browser image converter for classic 8-bit and 16-bit machines.
 | Machine | Mode | Pixels | Attribute / block size | Colors | Visible border | File |
 |---|---:|---:|---:|---|---|---|
 | ZX Spectrum | Standard | 256x192 | 8x8 | 2 of 16, ZX bright-black behavior | 32/32/24/24 | `.scr` / `.tap` |
-| ZX81 | Character graphics equalized / linear | 256x192 | 8x8 character cells | 64 glyphs + inverse video | 32/32/24/24 | `.zx8` |
+| ZX81 | Character graphics | 256x192 | 8x8 character cells | 64 glyphs + inverse video | 32/32/24/24 | `.zx8` |
 | TS 2068 | Standard | 256x192 | 8x8 | 2 of 16, Timex bright black is dark gray | 32/32/24/24 | `.scr` / `.tap` |
 | TS 2068 | Extended Color Mode | 256x192 | 8x1 | 2 of 16 per strip | 32/32/24/24 | `.scr` / `.tap` |
 | TS 2068 | 64-column hi-res | 512x192 | global | 8 hardware ink/paper pairs | 64/64/24/24 | `.scr` / `.tap` |
@@ -69,9 +69,13 @@ Color search strategies are mode-aware:
 - **Greedy global hull** is used for Atari GR.15: it adds four global Atari palette colors by reducing convex-hull coverage error, then runs a small swap refinement.
 - **Pixel-direct** is used for per-pixel modes such as QL and Atari GR.9.
 - **User-picked** is used for hardware-constrained global-pair modes such as TS 2068 64-column and Atari GR.8. GR.8 exposes Atari hue selectors plus foreground/background luma sliders.
-- **ZX81 character fit** converts the image to 32x24 fixed character cells and picks the closest normal or inverse-video glyph using multi-scale grayscale intensity matching. The `equalized` sub-mode applies the sRGB transfer to source luma before matching; the `linear` sub-mode matches directly in linear luma.
+- **ZX81 character fit** converts the image to 32x24 fixed character cells and picks the closest normal or inverse-video glyph using multi-scale grayscale intensity matching. By default it matches directly in linear luma; the perceptual-matching switch applies the sRGB transfer to source luma before matching (the former `equalized` sub-mode).
 
 Threshold-based dithers use linear RGB palette mixtures for multi-color palettes: the converter finds a small set of palette colors whose weighted average approximates the source color, then samples that mixture with the threshold matrix. `None` and error-propagation dithers use linear RGB nearest-color choices for multi-color palettes and ZX/Timex two-color attribute pixels, so color selection and propagated error are measured in the same space.
+
+An optional perceptual-matching switch (under the color strategy selector) changes nearest-color *selection* for the `None` dither to a gamma-encoded weighted RGB metric: distances are measured on sRGB-encoded channels weighted by the BT.709 coefficients. The per-channel sRGB transfer undoes the dark-tone compression of linear distances while keeping hue behavior aligned with plain RGB expectations. Block searches and Gauss-Seidel refinement score candidates in the same metric so the search matches the rendering. In the ZX81 mode the same switch applies the sRGB transfer to source luma before glyph matching. The switch applies only where real colors are quantized: error diffusion quantizes virtual accumulated values whose duty cycle is a linear-light quantity, so a perceptual metric there distorts color amounts badly on sparse palettes, and threshold dithers already match linear mixtures. The switch is hidden for both.
+
+ZX/Timex exhaustive modes offer an optional Gauss-Seidel refinement pass that re-scores the worst dithered attribute blocks against the realized output and swaps in better ink/paper pairs, iterating with re-dithers until stable. It applies only to `None` and error-diffusion dithers, where diffused error couples neighboring blocks. Ordered/threshold dithers are per-pixel deterministic with no cross-block coupling, and their per-pixel error metric mis-ranks pattern-dithered blocks (favoring dark, low-contrast solid pairs), so the refinement is disabled and hidden for them.
 
 ## Display Geometry
 

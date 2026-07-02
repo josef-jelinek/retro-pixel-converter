@@ -834,8 +834,7 @@ svg {
           <option value="hires">Timex 64-col hi-res (512×192 mono)</option>
         </optgroup>
         <optgroup label="Sinclair ZX81">
-          <option value="zx81-equalized">ZX81 Character Graphics Equalized (32×24 chars)</option>
-          <option value="zx81-linear">ZX81 Character Graphics Linear (32×24 chars)</option>
+          <option value="zx81">ZX81 Character Graphics (32×24 chars)</option>
         </optgroup>
         <optgroup label="Commodore 64 NTSC">
           <option value="c64-hires-ntsc">C64 NTSC Hi-res (320×200, 2/16 per 8×8)</option>
@@ -951,6 +950,13 @@ svg {
         <option value="global">Global pre-quantize + per-block</option>
         <option value="pca">PCA gradient fit</option>
       </select>
+    </div>
+
+    <div id="perceptualGroup" class="control-group advanced-only" style="display: none">
+      <label class="switch switch-row">
+        <input id="perceptualSwitch" type="checkbox">
+        Perceptual color matching
+      </label>
     </div>
 
     <div id="conversionOptionsGroup" class="control-group advanced-only" style="display: none">
@@ -1261,7 +1267,7 @@ const PALETTE_C64_PAL = [
   [0x75, 0xCE, 0xC8], // 3 cyan
   [0x8E, 0x3C, 0x97], // 4 purple
   [0x56, 0xAC, 0x4D], // 5 green
-  [0x2E, 0x2C, 0x9E], // 6 blue
+  [0x2E, 0x2C, 0x9B], // 6 blue
   [0xED, 0xF1, 0x71], // 7 yellow
   [0x8E, 0x50, 0x29], // 8 orange
   [0x55, 0x38, 0x00], // 9 brown
@@ -1396,7 +1402,7 @@ const PALETTE_ZX81 = [
 ];
 
 // --- Color Distance ---
-// Weighted Euclidean RGB. BT.601-ish weights: green > red > blue.
+// Weighted Euclidean RGB. Squared BT.709 luma coefficients: green > red > blue.
 const RGB_DISTANCE_WEIGHT_R = 0.2126 * 0.2126;
 const RGB_DISTANCE_WEIGHT_G = 0.7152 * 0.7152;
 const RGB_DISTANCE_WEIGHT_B = 0.0722 * 0.0722;
@@ -1536,17 +1542,40 @@ function blueNoiseHash01(index, rank) {
   return (h >>> 0) / 0x100000000;
 }
 
-function getThreshold(mode, x, y) {
-  if (mode === "ordered-bayer-4x4") return bayer4Thresholds[y & 3][x & 3];
-  if (mode === "ordered-bayer-8x8") return bayer8Thresholds[y & 7][x & 7];
-  if (mode === "halftone") return clustered8Thresholds[y & 7][x & 7];
-  if (mode === "blue-noise") return blueNoiseThreshold(x, y);
-  return 0.5;
+function bayer4Threshold(x, y) { return bayer4Thresholds[y & 3][x & 3]; }
+function bayer8Threshold(x, y) { return bayer8Thresholds[y & 7][x & 7]; }
+function clustered8Threshold(x, y) { return clustered8Thresholds[y & 7][x & 7]; }
+function constantThreshold() { return 0.5; }
+
+// Resolve the threshold lookup once per pass/block instead of string-comparing
+// the dither mode for every pixel.
+function getThresholdSampler(mode) {
+  if (mode === "ordered-bayer-4x4") return bayer4Threshold;
+  if (mode === "ordered-bayer-8x8") return bayer8Threshold;
+  if (mode === "halftone") return clustered8Threshold;
+  if (mode === "blue-noise") return blueNoiseThreshold;
+  return constantThreshold;
 }
 
 function isThresholdDither(mode) {
   return mode === "ordered-bayer-4x4" || mode === "ordered-bayer-8x8" ||
          mode === "halftone" || mode === "blue-noise";
+}
+
+// Pick the closer of a two-color pair: plain linear RGB distance when linearRgb
+// is set (matching the space of propagated error), weighted RGB otherwise.
+function closerOfTwoColors(r, g, b, c0, c1, linearRgb) {
+  const d0r = r - c0[0], d0g = g - c0[1], d0b = b - c0[2];
+  const d1r = r - c1[0], d1g = g - c1[1], d1b = b - c1[2];
+  let d0, d1;
+  if (linearRgb) {
+    d0 = d0r * d0r + d0g * d0g + d0b * d0b;
+    d1 = d1r * d1r + d1g * d1g + d1b * d1b;
+  } else {
+    d0 = RGB_DISTANCE_WEIGHT_R * d0r * d0r + RGB_DISTANCE_WEIGHT_G * d0g * d0g + RGB_DISTANCE_WEIGHT_B * d0b * d0b;
+    d1 = RGB_DISTANCE_WEIGHT_R * d1r * d1r + RGB_DISTANCE_WEIGHT_G * d1g * d1g + RGB_DISTANCE_WEIGHT_B * d1b * d1b;
+  }
+  return d1 < d0 ? c1 : c0;
 }
 
 // Fraction of color1 that best approximates the pixel along the color0->color1 line.
@@ -1646,7 +1675,6 @@ const ZX81_GLYPH_ROWS = [
 ];
 
 const zx81FitCounts = new Int32Array([1, 4, 16, 64]);
-const zx81FitWeights = new Float32Array([1, 1, 1, 1]);
 
 const modes = {
   standard: {
@@ -1693,7 +1721,7 @@ const modes = {
     colorful: false, port: 6, label: "hires",
     ext: "scr", supportsTap: true,
   },
-  "zx81-equalized": {
+  zx81: {
     w: 256, h: 192,
     border: { left: 32, right: 32, top: 24, bottom: 24 },
     borderPalette: [[0xFF, 0xFF, 0xFF]],
@@ -1701,18 +1729,7 @@ const modes = {
     palettes: [PALETTE_ZX81],
     mandatoryColor: null,
     searchStrategy: "zx81-character",
-    colorful: false, label: "zx81-equalized",
-    ext: "zx8", supportsTap: false,
-  },
-  "zx81-linear": {
-    w: 256, h: 192,
-    border: { left: 32, right: 32, top: 24, bottom: 24 },
-    borderPalette: [[0xFF, 0xFF, 0xFF]],
-    blockW: 8, blockH: 8, colorsPerBlock: 2,
-    palettes: [PALETTE_ZX81],
-    mandatoryColor: null,
-    searchStrategy: "zx81-character",
-    colorful: false, label: "zx81-linear",
+    colorful: false, label: "zx81",
     ext: "zx8", supportsTap: false,
   },
   "c64-hires-ntsc": {
@@ -1871,6 +1888,7 @@ let dragState = null;         // active drag info
 let zoomLevel = "fit";        // 'fit' | 1 | 2 | 4 | 8
 let fullscreenMode = null;    // null | 'input' | 'output'
 let fullscreenCanvasKind = null; // null | 'input-webgl' | 'output-webgl'
+let fullscreenRequestFailed = false; // requestFullscreen() rejected; render at window size
 let outputViewMode = "active"; // 'active' | 'saved'
 let abSnapshot = null;        // { pixels: Float32Array linear RGB, w, h, mode, modeCfg, displayAspect, outScale, revision }
 
@@ -1978,6 +1996,8 @@ const UI = {
   loadNewBtn: byId("loadNewBtn"),
   lockAspect: byId("lockAspect"),
   modesFileInput: byId("modesFileInput"),
+  perceptualGroup: byId("perceptualGroup"),
+  perceptualSwitch: byId("perceptualSwitch"),
   originalCanvas: byId("originalCanvas"),
   outputGridCanvas: byId("outputGridCanvas"),
   outputGenerationOverlay: byId("outputGenerationOverlay"),
@@ -2432,7 +2452,7 @@ function initPaletteStrip() {
     return;
   }
   const entries = paletteStripEntries(mode);
-  const disableable = !(mode === "hires" || mode === "ql-mode4" || isZX81Mode(mode));
+  const disableable = !(mode === "hires" || mode === "ql-mode4" || mode === "zx81");
   const canToggle = disableable && UI.advancedToggle && UI.advancedToggle.checked;
   for (const e of entries) {
     const d = document.createElement("div");
@@ -2506,7 +2526,10 @@ initCropFillColorControls();
 // --- File handling ---
 UI.browseBtn.addEventListener("click", () => UI.fileInput.click());
 UI.loadNewBtn.addEventListener("click", () => UI.fileInput.click());
-UI.fileInput.addEventListener("change", e => { if (e.target.files[0]) loadImage(e.target.files[0]); });
+UI.fileInput.addEventListener("change", e => {
+  if (e.target.files[0]) loadImage(e.target.files[0]);
+  e.target.value = "";
+});
 
 UI.dropZone.addEventListener("dragover", e => {
   e.preventDefault();
@@ -2516,6 +2539,14 @@ UI.dropZone.addEventListener("dragleave", () => UI.dropZone.classList.remove("ac
 UI.dropZone.addEventListener("drop", e => {
   e.preventDefault();
   UI.dropZone.classList.remove("active");
+  const file = e.dataTransfer.files[0];
+  if (file && file.type.startsWith("image/")) loadImage(file);
+});
+// The drop zone is hidden once an image is loaded; keep drop-to-replace working
+// by accepting drops on the source preview canvas as well.
+UI.originalCanvas.addEventListener("dragover", e => e.preventDefault());
+UI.originalCanvas.addEventListener("drop", e => {
+  e.preventDefault();
   const file = e.dataTransfer.files[0];
   if (file && file.type.startsWith("image/")) loadImage(file);
 });
@@ -2537,11 +2568,6 @@ function loadImage(file) {
   state.sourceImageLinear = null;
   state.colorMasks = null;
   state.cropRect = null;
-  state.cropStretch = true;
-  state.cropFillLinear[0] = 0;
-  state.cropFillLinear[1] = 0;
-  state.cropFillLinear[2] = 0;
-  state.cropFillLinear[3] = 1;
   state.srcLinear = null;
   state.cropMap = null;
   state.work = null;
@@ -2579,7 +2605,6 @@ function loadImage(file) {
   state.pendingReader = reader;
   reader.onload = handleSourceFileRead;
   reader.onerror = handleSourceFileReadError;
-  reader.onabort = handleSourceFileReadAbort;
   reader.readAsDataURL(file);
 }
 
@@ -2602,11 +2627,6 @@ function handleSourceFileReadError(e) {
   const state = conversionPipelineState;
   if (e.target !== state.pendingReader) return;
   pipelineFail(state.id, e.target.error || new Error("File read failed"), "Unable to read image file.");
-}
-
-function handleSourceFileReadAbort(e) {
-  if (e.target !== conversionPipelineState.pendingReader) return;
-  conversionPipelineState.stage = "idle";
 }
 
 function handleSourceImageLoaded() {
@@ -2792,29 +2812,17 @@ function defaultColorStrategyForMode(mode) {
 function recommendSettings(analysis, mode) {
   // Defaults from the classification table
   let dither = "floyd-steinberg";
-  let strategy = defaultColorStrategyForMode(mode);
-  if (analysis) {
-    if (analysis.klass === "lineart") {
-      dither = "ordered-bayer-8x8";
-    } else {
-      dither = "floyd-steinberg";
-    }
-  }
-  // Mode-specific overrides
+  const strategy = defaultColorStrategyForMode(mode);
+  if (analysis && analysis.klass === "lineart") dither = "ordered-bayer-8x8";
+  // Mode-specific override: these modes always prefer error diffusion.
   if (
-    mode === "hires" || mode === "atari-gr8" ||
-    mode === "zx81-equalized" || mode === "zx81-linear" ||
+    mode === "hires" || mode === "atari-gr8" || mode === "zx81" ||
     mode === "atari-gr9" || mode === "ql-mode8" || mode === "ql-mode4" ||
-    mode === "atari-gr15"
-  ) {
-    dither = "floyd-steinberg";
-    strategy = defaultColorStrategyForMode(mode);
-  } else if (
+    mode === "atari-gr15" ||
     mode === "c64-hires-ntsc" || mode === "c64-koala-ntsc" ||
     mode === "c64-hires-pal" || mode === "c64-koala-pal"
   ) {
     dither = "floyd-steinberg";
-    strategy = defaultColorStrategyForMode(mode);
   }
   return { dither, strategy };
 }
@@ -2840,7 +2848,7 @@ function updateAutoBadge(rec, analysis) {
   const mode = UI.displayMode.value;
   const cfg = modes[mode] ?? modes.standard;
   const parts = [];
-  if (modeUsesDither(mode, cfg)) parts.push(ditherLabel(rec.dither));
+  if (modeUsesDither(cfg)) parts.push(ditherLabel(rec.dither));
   if (allowedColorStrategiesForMode(mode, cfg).length) parts.push(strategyLabel(rec.strategy));
   if (!parts.length) parts.push(cfg.searchStrategy === "zx81-character" ? "character matching" : cfg.label);
   txt.textContent = parts.join(" + ");
@@ -2947,10 +2955,14 @@ function renderCropOverlay() {
   const maxW = Math.max(50, wrap.clientWidth - padding);
   const scale = maxW / sourceImage.width;
   cropDisplayScale = scale;
-  canvas.width = Math.round(sourceImage.width * scale);
-  canvas.height = Math.round(sourceImage.height * scale);
+  const width = Math.round(sourceImage.width * scale);
+  const height = Math.round(sourceImage.height * scale);
+  // Assigning canvas.width/height reallocates the drawing buffer even when
+  // unchanged; skip it during drags where the size is stable.
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
 
-  renderInputPreviewCanvas(canvas, canvas.width, canvas.height, scale);
+  renderInputPreviewCanvas(canvas, width, height, scale);
   if (fullscreenMode === "input" && UI.fsOverlay.classList.contains("visible")) {
     renderInputFullscreenCanvas();
   }
@@ -2979,6 +2991,12 @@ function getHitTarget(mx, my) {
   if (mx >= cx && mx <= cx + cw && my >= cy && my <= cy + ch) return "move";
   return null;
 }
+
+const CROP_CURSORS = {
+  nw: "nwse-resize", se: "nwse-resize",
+  ne: "nesw-resize", sw: "nesw-resize",
+  move: "move",
+};
 
 UI.originalCanvas.addEventListener("mousedown", e => {
   if (!sourceImage) return;
@@ -3028,8 +3046,16 @@ window.addEventListener("mousemove", e => {
         nw = dragState.startW - dx;
       }
       if (east) nw = dragState.startW + dx;
-      if (nw < 10) nw = 10;
-      if (nh < 10) nh = 10;
+      // Min-size clamp must re-anchor west/north edges, otherwise the rect
+      // detaches from its fixed edge and can slide outside the image.
+      if (nw < 10) {
+        if (west) nx = dragState.startX + dragState.startW - 10;
+        nw = 10;
+      }
+      if (nh < 10) {
+        if (north) ny = dragState.startY + dragState.startH - 10;
+        nh = 10;
+      }
 
       if (cropAspectLocked) {
         // Enforce 4:3 aspect AND respect image bounds simultaneously: compute
@@ -3078,27 +3104,21 @@ window.addEventListener("mousemove", e => {
     cropRect = { x: nx, y: ny, w: nw, h: nh };
     renderCropOverlay();
   } else {
-    // Cursor feedback
+    // Cursor feedback; skip layout reads for moves outside the canvas.
+    if (e.target !== UI.originalCanvas) return;
     const { x, y } = canvasCoords(e);
-    const target = getHitTarget(x, y);
-    const cursors = {
-      "nw": "nwse-resize", "se": "nwse-resize",
-      "ne": "nesw-resize", "sw": "nesw-resize",
-      "move": "move"
-    };
-    UI.originalCanvas.style.cursor = cursors[target] ?? "default";
+    const cursor = CROP_CURSORS[getHitTarget(x, y)] ?? "default";
+    if (UI.originalCanvas.style.cursor !== cursor) UI.originalCanvas.style.cursor = cursor;
   }
 });
 
 window.addEventListener("mouseup", () => {
-  if (dragState) {
-    dragState = null;
-    if (sourceImage) convert();
-  }
-});
-
-window.addEventListener("resize", () => {
-  if (sourceImage) renderCropOverlay();
+  if (!dragState) return;
+  const changed = !cropRect ||
+    cropRect.x !== dragState.startX || cropRect.y !== dragState.startY ||
+    cropRect.w !== dragState.startW || cropRect.h !== dragState.startH;
+  dragState = null;
+  if (changed && sourceImage) convert();
 });
 
 UI.lockAspect.addEventListener("change", e => {
@@ -3147,9 +3167,6 @@ bindSettingControl("displayMode", UI.displayMode);
 bindSettingControl("ditherMode", UI.ditherMode);
 bindSettingControl("colorStrategy", UI.colorStrategy);
 bindSettingControl("hiresPair", UI.hiresPair);
-bindSettingControl("inkColor", UI.inkColor);
-bindSettingControl("paperColor", UI.paperColor);
-bindSettingControl("hiresBright", UI.hiresBright);
 bindSettingControl("atariGr8FgHue", UI.atariGr8FgHue);
 bindSettingControl("atariGr8FgLuma", UI.atariGr8FgLuma);
 bindSettingControl("atariGr8BgHue", UI.atariGr8BgHue);
@@ -3160,6 +3177,7 @@ bindSettingControl("contrast", UI.contrast);
 bindSettingControl("saturation", UI.saturation);
 bindSettingControl("gamma", UI.gamma);
 bindSettingControl("showGrid", UI.showGrid);
+bindSettingControl("perceptual", UI.perceptualSwitch);
 bindSettingControl("serpentine", UI.serpentine);
 bindSettingControl("gaussSeidel", UI.gaussSeidel);
 
@@ -3180,16 +3198,30 @@ function isC64KoalaMode(mode) {
   return mode === "c64-koala-ntsc" || mode === "c64-koala-pal";
 }
 
-function modeUsesDither(mode, cfg) {
+function modeUsesDither(cfg) {
   return cfg.searchStrategy !== "zx81-character";
+}
+
+// Perceptual matching applies only where real colors are quantized: "none"
+// dithering and ZX81 glyph matching (the former "equalized" sub-mode).
+// Error diffusion quantizes virtual accumulated values whose duty cycle is a
+// linear-light quantity — a perceptual metric there distorts color amounts
+// badly on sparse palettes. Threshold dithers match linear mixtures and are
+// equally unaffected.
+function perceptualMatchingAvailable(cfg, ditherMode) {
+  return (modeUsesDither(cfg) && ditherMode === "none") || cfg.searchStrategy === "zx81-character";
 }
 
 function modeSupportsGridOverlay(cfg) {
   return cfg.blockW > 1 && (cfg.blockW < cfg.w || cfg.blockH < cfg.h);
 }
 
-function modeSupportsGaussSeidel(mode, cfg) {
-  return cfg.searchStrategy === "exhaustive" && isZXAttributeMode(mode);
+function modeSupportsGaussSeidel(mode, cfg, ditherMode) {
+  // Ordered/threshold dithers are per-pixel deterministic with no cross-block
+  // error coupling, so Gauss-Seidel refinement has nothing to react to — and
+  // its per-pixel error metric mis-ranks pattern-dithered blocks (prefers
+  // dark, low-contrast solid pairs over correct high-contrast patterns).
+  return cfg.searchStrategy === "exhaustive" && isZXAttributeMode(mode) && !isThresholdDither(ditherMode);
 }
 
 function allowedColorStrategiesForMode(mode, cfg) {
@@ -3228,11 +3260,12 @@ function updateSelectAvailability(select, allowedValues) {
 function updateModeUI() {
   const mode = UI.displayMode.value;
   const cfg = modes[mode] ?? modes.standard;
-  const usesDither = modeUsesDither(mode, cfg);
+  const usesDither = modeUsesDither(cfg);
   const colorStrategies = allowedColorStrategiesForMode(mode, cfg);
   const showGrid = modeSupportsGridOverlay(cfg);
   const showSerpentine = usesDither && ROW_DIFFUSION_DITHER_MODES.includes(UI.ditherMode.value);
-  const showGaussSeidel = modeSupportsGaussSeidel(mode, cfg);
+  const showGaussSeidel = modeSupportsGaussSeidel(mode, cfg, UI.ditherMode.value);
+  const showPerceptual = perceptualMatchingAvailable(cfg, UI.ditherMode.value);
 
   setControlVisible(UI.hiresColorsGroup, mode === "hires");
   setControlVisible(UI.atariGr8ColorsGroup, mode === "atari-gr8");
@@ -3240,6 +3273,7 @@ function updateModeUI() {
   setControlVisible(UI.ditherModeGroup, usesDither);
   updateSelectAvailability(UI.colorStrategy, colorStrategies);
   setControlVisible(UI.colorStrategyGroup, colorStrategies.length > 0);
+  setControlVisible(UI.perceptualGroup, showPerceptual);
   setControlVisible(UI.showGridRow, showGrid);
   setControlVisible(UI.serpentineRow, showSerpentine);
   setControlVisible(UI.gaussSeidelRow, showGaussSeidel);
@@ -3404,10 +3438,6 @@ const DIFFUSION_KERNELS = {
   ]),
 };
 
-function isZX81Mode(mode) {
-  return mode === "zx81-equalized" || mode === "zx81-linear";
-}
-
 const PIPELINE_WORK_BUDGET_MS = 10;
 const OUTPUT_GENERATION_NOTICE_DELAY_MS = 200;
 const CROP_MAP_ROW_CHUNK = 96;
@@ -3481,12 +3511,14 @@ function getZX81GlyphCandidates() {
   return candidates;
 }
 
-function fillZX81BlockValues(work, width, blockX, blockY, values, equalized) {
+// perceptual applies the sRGB transfer to source luma before glyph matching
+// (the former "equalized" ZX81 sub-mode, now driven by the perceptual switch).
+function fillZX81BlockValues(work, width, blockX, blockY, values, perceptual) {
   for (let y = 0; y < 8; y++) {
     for (let x = 0; x < 8; x++) {
       const idx = ((blockY + y) * width + blockX + x) * 3;
       let luma = 0.2126 * work[idx] + 0.7152 * work[idx + 1] + 0.0722 * work[idx + 2];
-      if (equalized) luma = linearToSrgb(clamp01(luma)) / 255;
+      if (perceptual) luma = linearToSrgbUnit(clamp01(luma));
       values[y * 8 + x] = clamp01(luma);
     }
   }
@@ -3502,7 +3534,7 @@ function scoreZX81Features(source, candidate) {
       const d = source[offset + i] - candidate[offset + i];
       levelError += d * d;
     }
-    score += zx81FitWeights[level] * levelError / count;
+    score += levelError / count;
     offset += count;
   }
   return score;
@@ -3546,12 +3578,10 @@ const conversionPipelineState = {
   cropStretch: true,
   cropFillLinear: new Float32Array([0, 0, 0, 1]),
   ditherMode: "floyd-steinberg",
+  perceptual: false,
   colorStrategy: "segment-coverage",
   colorMasks: null,
   hiresPair: 0,
-  inkColor: 0,
-  paperColor: 0,
-  hiresBright: false,
   atariGr8FgHue: 0,
   atariGr8FgLuma: 7,
   atariGr8BgHue: 0,
@@ -3625,6 +3655,8 @@ const conversionPipelineState = {
   adaptiveSfcRankBuffer: null,
   adaptiveSfcVisitedBuffer: null,
   adaptiveSfcOrderBuffer: null,
+  adaptiveSfcOrderCached: null,
+  adaptiveSfcOrderId: -1,
   resultLinearBuffers: [null, null],
   resultLinearBufferIndex: 0,
 };
@@ -3754,12 +3786,10 @@ function convert() {
   state.cropFillLinear[2] = linearBySRGB[cropFillColor.b];
   state.cropFillLinear[3] = 1;
   state.ditherMode = UI.ditherMode.value;
+  state.perceptual = UI.perceptualSwitch.checked && perceptualMatchingAvailable(state.modeCfg, state.ditherMode);
   state.colorStrategy = UI.colorStrategy.value;
   state.colorMasks = enabledColorMasks(state.mode);
   state.hiresPair = parseInt(UI.hiresPair.value, 10) || 0;
-  state.inkColor = parseInt(UI.inkColor.value, 10) || 0;
-  state.paperColor = parseInt(UI.paperColor.value, 10) || 0;
-  state.hiresBright = UI.hiresBright ? UI.hiresBright.checked : false;
   state.atariGr8FgHue = parseInt(UI.atariGr8FgHue.value, 10);
   state.atariGr8FgLuma = parseInt(UI.atariGr8FgLuma.value, 10);
   state.atariGr8BgHue = parseInt(UI.atariGr8BgHue.value, 10);
@@ -3850,12 +3880,18 @@ function pipelineStageMapSourceToTarget(id) {
   const scaleY = dh > 0 ? cropH / dh : 0;
   const sourceWidth = state.sourceImageLinear.width;
   const sourceHeight = state.sourceImageLinear.height;
+  // Clamp sampling to the crop rect (not the full image) so edge output pixels
+  // do not blend with source pixels outside the selected crop.
+  const cropFirstX = Math.max(0, Math.floor(cropX));
+  const cropLastX = Math.min(sourceWidth - 1, Math.ceil(cropX + cropW) - 1);
+  const cropFirstY = Math.max(0, Math.floor(cropY));
+  const cropLastY = Math.min(sourceHeight - 1, Math.ceil(cropY + cropH) - 1);
   for (let x = startX; x < endX; x++) {
     const localX = x - dx;
     let fx = cropX + (localX + 0.5) * scaleX - 0.5;
-    if (fx < 0) fx = 0; else if (fx > sourceWidth - 1) fx = sourceWidth - 1;
+    if (fx < cropFirstX) fx = cropFirstX; else if (fx > cropLastX) fx = cropLastX;
     const x0 = Math.floor(fx);
-    const x1 = x0 + 1 < sourceWidth ? x0 + 1 : x0;
+    const x1 = x0 + 1 <= cropLastX ? x0 + 1 : x0;
     sampleX0[x] = x0;
     sampleX1[x] = x1;
     sampleXT[x] = fx - x0;
@@ -3863,9 +3899,9 @@ function pipelineStageMapSourceToTarget(id) {
   for (let y = startY; y < endY; y++) {
     const localY = y - dy;
     let fy = cropY + (localY + 0.5) * scaleY - 0.5;
-    if (fy < 0) fy = 0; else if (fy > sourceHeight - 1) fy = sourceHeight - 1;
+    if (fy < cropFirstY) fy = cropFirstY; else if (fy > cropLastY) fy = cropLastY;
     const y0 = Math.floor(fy);
-    const y1 = y0 + 1 < sourceHeight ? y0 + 1 : y0;
+    const y1 = y0 + 1 <= cropLastY ? y0 + 1 : y0;
     sampleY0[y] = y0;
     sampleY1[y] = y1;
     sampleYT[y] = fy - y0;
@@ -4267,16 +4303,21 @@ function pipelineStageQuantizeMode(id) {
       evalSource: state.evalSourceBuffer = ensureFloat32Buffer(state.evalSourceBuffer, evalSize),
       evalPair: [null, null],
     };
+    const koalaSampleCols = Math.ceil(numAttrCols / 2);
+    const koalaSampleRows = Math.ceil(numAttrRows / 2);
     state.quantizePass = {
       bgIdx: 0,
       bgErr: 0,
       bestBg: 0,
       bestBgErr: Infinity,
+      countsOffset: 0,
       sampleOffset: 0,
-      sampleCols: Math.ceil(numAttrCols / 2),
-      sampleRows: Math.ceil(numAttrRows / 2),
+      sampleCols: koalaSampleCols,
+      sampleRows: koalaSampleRows,
       blockOffset: 0,
       counts: state.c64CountsBuffer = ensureUint32Buffer(state.c64CountsBuffer, 16),
+      sampleCounts: state.c64SampleCountsBuffer =
+        ensureUint32Buffer(state.c64SampleCountsBuffer, koalaSampleCols * koalaSampleRows * 16),
       topIds: state.c64TopIdsBuffer = ensureInt16Buffer(state.c64TopIdsBuffer, 6),
       topCounts: state.c64TopCountsBuffer = ensureInt32Buffer(state.c64TopCountsBuffer, 6),
       bestLocalIds: state.c64BestLocalIdsBuffer = ensureInt16Buffer(state.c64BestLocalIdsBuffer, 3),
@@ -4431,6 +4472,7 @@ function pipelineStageQuantizeZXExhaustiveBlocks(id) {
     const screenW = state.screenWidth;
     const palettes = state.palettes;
     const ditherMode = state.ditherMode;
+    const perceptual = state.perceptual;
     const colorStrategy = state.colorStrategy;
     const colorMasks = state.colorMasks;
     const work = state.work;
@@ -4448,24 +4490,9 @@ function pipelineStageQuantizeZXExhaustiveBlocks(id) {
       for (let cell = pass.offset; cell < end; cell++) {
         const by = (cell / numAttrCols) | 0;
         const bx = cell - by * numAttrCols;
-        colorCounts[0].fill(0);
-        colorCounts[1].fill(0);
         const blockX = bx * bW, blockY = by * bH;
         const source = q.evalSource;
         copyBlockToSource(source, work, screenW, blockX, blockY, bW, bH);
-        let bestInk = 0, bestPaper = 0, bestBright = 0, bestError = Infinity;
-
-        let lumaMin = Infinity, lumaMax = -Infinity;
-        for (let i = 0; i < source.length; i += 3) {
-          const r = source[i];
-          const g = source[i + 1];
-          const b = source[i + 2];
-          const luma = r * 0.2126 + g * 0.7152 + b * 0.0722;
-          lumaMin = Math.min(luma, lumaMin);
-          lumaMax = Math.max(luma, lumaMax);
-        }
-        const requireDistinct = isThreshold && (lumaMax - lumaMin) > 0.06;
-        const pair = q.evalPair;
 
         if (colorStrategy === "segment-coverage") {
           const attr = chooseZXSegmentCoverageAttribute(source, q.zxPairsAny, palettes);
@@ -4473,6 +4500,20 @@ function pipelineStageQuantizeZXExhaustiveBlocks(id) {
           setZXAttrBlockColors(q, palettes, by, bx, attr);
           continue;
         }
+
+        let bestInk = 0, bestPaper = 0, bestBright = 0, bestError = Infinity;
+        // Only the per-block and PCA strategies use the luma-contrast check.
+        let requireDistinct = false;
+        if (isThreshold && (colorStrategy === "per-block" || colorStrategy === "pca")) {
+          let lumaMin = Infinity, lumaMax = -Infinity;
+          for (let i = 0; i < source.length; i += 3) {
+            const luma = source[i] * 0.2126 + source[i + 1] * 0.7152 + source[i + 2] * 0.0722;
+            lumaMin = Math.min(luma, lumaMin);
+            lumaMax = Math.max(luma, lumaMax);
+          }
+          requireDistinct = (lumaMax - lumaMin) > 0.06;
+        }
+        const pair = q.evalPair;
 
         if (colorStrategy === "per-block") {
           const pairs = requireDistinct ? q.zxPairsDistinct : q.zxPairsAny;
@@ -4483,7 +4524,7 @@ function pipelineStageQuantizeZXExhaustiveBlocks(id) {
             const pal = palettes[bright];
             pair[0] = pal[ink];
             pair[1] = pal[paper];
-            const err = evaluateBlock(work, screenW, blockX, blockY, bW, bH, pair, ditherMode, q.evalTemp, source, bestError, true);
+            const err = evaluateBlock(work, screenW, blockX, blockY, bW, bH, pair, ditherMode, q.evalTemp, source, bestError, true, perceptual);
             if (err < bestError) {
               bestError = err;
               bestInk = ink;
@@ -4549,7 +4590,7 @@ function pipelineStageQuantizeZXExhaustiveBlocks(id) {
           }
           for (let bright = 0; bright <= 1; bright++) {
             const pal = palettes[bright];
-            let lowIdx = 0, lowD = Infinity, hiIdx = 0, hiD = Infinity;
+            let lowIdx = -1, lowD = Infinity, hiIdx = -1, hiD = Infinity;
             for (let i = 0; i < 8; i++) {
               if (!isPipelineColorEnabled(colorMasks, bright, i)) continue;
               const color = pal[i];
@@ -4564,15 +4605,29 @@ function pipelineStageQuantizeZXExhaustiveBlocks(id) {
                 hiIdx = i;
               }
             }
+            if (lowIdx < 0) continue;
             if (requireDistinct && lowIdx === hiIdx) continue;
             pair[0] = pal[lowIdx];
             pair[1] = pal[hiIdx];
-            const err = evaluateBlock(work, screenW, blockX, blockY, bW, bH, pair, ditherMode, q.evalTemp, source, bestError, true);
+            const err = evaluateBlock(work, screenW, blockX, blockY, bW, bH, pair, ditherMode, q.evalTemp, source, bestError, true, perceptual);
             if (err < bestError) {
               bestError = err;
               bestInk = lowIdx;
               bestPaper = hiIdx;
               bestBright = bright;
+            }
+          }
+          if (bestError === Infinity) {
+            // Nothing was evaluated (masked-out palette or contrast filter);
+            // fall back to a solid block of the first enabled color.
+            for (let bright = 0; bright <= 1; bright++) {
+              const idx = firstEnabledPaletteIndex(palettes[bright], colorMasks[bright]);
+              if (isPipelineColorEnabled(colorMasks, bright, idx)) {
+                bestBright = bright;
+                bestInk = idx;
+                bestPaper = idx;
+                break;
+              }
             }
           }
         } else if (colorStrategy === "weighted-average") {
@@ -4589,6 +4644,8 @@ function pipelineStageQuantizeZXExhaustiveBlocks(id) {
             }
           }
         } else {
+          colorCounts[0].fill(0);
+          colorCounts[1].fill(0);
           for (let i = 0; i < source.length; i += 3) {
             const r = source[i];
             const g = source[i + 1];
@@ -4598,13 +4655,15 @@ function pipelineStageQuantizeZXExhaustiveBlocks(id) {
           }
           let topColorIndex = -1;
           let topBright = 0;
+          let topCount = -1;
           for (let bright = 0; bright <= 1; bright++) {
             const colorMask = colorMasks[bright];
             const counts = colorCounts[bright];
             for (let i = 0; i < 8; i++) {
-              if (colorMask[i] && (topColorIndex < 0 || counts[i] > counts[topColorIndex])) {
+              if (colorMask[i] && counts[i] > topCount) {
                 topColorIndex = i;
                 topBright = bright;
+                topCount = counts[i];
               }
             }
           }
@@ -4613,9 +4672,11 @@ function pipelineStageQuantizeZXExhaustiveBlocks(id) {
             const colorMask = colorMasks[topBright];
             for (let colorIndex = 0; colorIndex < 8; colorIndex++) {
               if (colorMask[colorIndex] && colorIndex !== topColorIndex) {
-                pair[0] = pal[topColorIndex];
-                pair[1] = pal[colorIndex];
-                const err = evaluateBlock(work, screenW, blockX, blockY, bW, bH, pair, ditherMode, q.evalTemp, source, bestError, true);
+                // Evaluate ink-first to match how setZXAttrBlockColors and the
+                // threshold dithers order the pair when rendering.
+                pair[0] = pal[colorIndex];
+                pair[1] = pal[topColorIndex];
+                const err = evaluateBlock(work, screenW, blockX, blockY, bW, bH, pair, ditherMode, q.evalTemp, source, bestError, true, perceptual);
                 if (err < bestError) {
                   bestError = err;
                   bestBright = topBright;
@@ -4668,6 +4729,7 @@ function pipelineStageQuantizeC64HiresBlocks(id) {
     const colorMask = colorMasks[0];
     const work = state.work;
     const ditherMode = state.ditherMode;
+    const perceptual = state.perceptual;
     const colorStrategy = state.colorStrategy;
     const bW = q.bW;
     const bH = q.bH;
@@ -4704,13 +4766,13 @@ function pipelineStageQuantizeC64HiresBlocks(id) {
           const limit = 1 << 16;
           while (mask < limit) {
             const lowBit = mask & -mask;
-            const colorA = Math.trunc(Math.log2(lowBit));
-            const colorB = Math.trunc(Math.log2(mask ^ lowBit));
-            if (isPipelineColorEnabled(colorMasks, 0, colorA) && isPipelineColorEnabled(colorMasks, 0, colorB)) {
+            const colorA = 31 - Math.clz32(lowBit);
+            const colorB = 31 - Math.clz32(mask ^ lowBit);
+            if ((!colorMask || (colorMask[colorA] && colorMask[colorB]))) {
               const pair = q.evalPair;
               pair[0] = pal[colorA];
               pair[1] = pal[colorB];
-              const err = evaluateBlock(work, screenW, blockX, blockY, bW, bH, pair, ditherMode, q.evalTemp, source, bestError);
+              const err = evaluateBlock(work, screenW, blockX, blockY, bW, bH, pair, ditherMode, q.evalTemp, source, bestError, false, perceptual);
               if (err < bestError) {
                 bestError = err;
                 bestA = colorA;
@@ -4720,6 +4782,11 @@ function pipelineStageQuantizeC64HiresBlocks(id) {
 
             const next = mask + lowBit;
             mask = (((next ^ mask) >>> 2) / lowBit) | next;
+          }
+          if (bestError === Infinity) {
+            // Fewer than two enabled colors: fall back to a solid block.
+            bestA = firstEnabledPaletteIndex(pal, colorMask);
+            bestB = bestA;
           }
         }
         let cellColors = q.blockColors[by][bx];
@@ -4769,6 +4836,44 @@ function pipelineStageQuantizeC64KoalaBackground(id) {
     const bH = q.bH;
     const totalSamples = pass.sampleCols * pass.sampleRows;
     const deadline = pipelineWorkDeadline();
+    const sampleCounts = pass.sampleCounts;
+    const topLimit = useSimplexCoverage ? 6 : 3;
+    // Phase A: per-sample palette histograms do not depend on the background
+    // candidate, so compute them once instead of once per candidate.
+    while (pass.countsOffset < totalSamples) {
+      const end = Math.min(totalSamples, pass.countsOffset + QUANTIZE_BLOCK_CHUNK);
+      for (let sample = pass.countsOffset; sample < end; sample++) {
+        const by = ((sample / pass.sampleCols) | 0) * 2;
+        const bx = (sample % pass.sampleCols) * 2;
+        const blockX = bx * bW, blockY = by * bH;
+        const source = q.evalSource;
+        copyBlockToSource(source, work, screenW, blockX, blockY, bW, bH);
+        const countsBase = sample * 16;
+        for (let i = 0; i < 16; i++) sampleCounts[countsBase + i] = 0;
+        if (useSimplexCoverage) {
+          for (let i = 0; i < source.length; i += 3) {
+            const r = Math.max(0, Math.min(1, source[i]));
+            const g = Math.max(0, Math.min(1, source[i + 1]));
+            const b = Math.max(0, Math.min(1, source[i + 2]));
+            sampleCounts[countsBase + quantizeNearestLinearRgb(r, g, b, pal)]++;
+          }
+        } else {
+          for (let i = 0; i < source.length; i += 3) {
+            const r = Math.max(0, Math.min(1, source[i]));
+            const g = Math.max(0, Math.min(1, source[i + 1]));
+            const b = Math.max(0, Math.min(1, source[i + 2]));
+            sampleCounts[countsBase + quantizeNearestColor(r, g, b, pal)]++;
+          }
+        }
+      }
+      pass.countsOffset = end;
+      if (pipelineShouldYield(deadline)) break;
+    }
+    if (pass.countsOffset < totalSamples) {
+      pipelineSchedule(pipelineStageQuantizeC64KoalaBackground, id);
+      return;
+    }
+    // Phase B: score each enabled background candidate over the samples.
     while (pass.bgIdx < 16) {
       if (colorMask && !colorMask[pass.bgIdx]) {
         pass.bgIdx++;
@@ -4777,34 +4882,19 @@ function pipelineStageQuantizeC64KoalaBackground(id) {
         continue;
       }
       const end = Math.min(totalSamples, pass.sampleOffset + QUANTIZE_BLOCK_CHUNK);
+      const fallback = firstEnabledPaletteIndex(pal, colorMask, pass.bgIdx);
       for (let sample = pass.sampleOffset; sample < end; sample++) {
         const by = ((sample / pass.sampleCols) | 0) * 2;
         const bx = (sample % pass.sampleCols) * 2;
         const blockX = bx * bW, blockY = by * bH;
         const source = q.evalSource;
         copyBlockToSource(source, work, screenW, blockX, blockY, bW, bH);
-        pass.counts.fill(0);
-        if (useSimplexCoverage) {
-          for (let i = 0; i < source.length; i += 3) {
-            const r = Math.max(0, Math.min(1, source[i]));
-            const g = Math.max(0, Math.min(1, source[i + 1]));
-            const b = Math.max(0, Math.min(1, source[i + 2]));
-            pass.counts[quantizeNearestLinearRgb(r, g, b, pal)]++;
-          }
-        } else {
-          for (let i = 0; i < source.length; i += 3) {
-            const r = Math.max(0, Math.min(1, source[i]));
-            const g = Math.max(0, Math.min(1, source[i + 1]));
-            const b = Math.max(0, Math.min(1, source[i + 2]));
-            pass.counts[quantizeNearestColor(r, g, b, pal)]++;
-          }
-        }
-        const topLimit = useSimplexCoverage ? 6 : 3;
+        const countsBase = sample * 16;
         pass.topIds.fill(-1);
         pass.topCounts.fill(-1);
         for (let i = 0; i < 16; i++) {
-          if (i === pass.bgIdx || (colorMask && !colorMask[i]) || pass.counts[i] === 0) continue;
-          const count = pass.counts[i];
+          const count = sampleCounts[countsBase + i];
+          if (i === pass.bgIdx || (colorMask && !colorMask[i]) || count === 0) continue;
           for (let pos = 0; pos < topLimit; pos++) {
             if (count > pass.topCounts[pos]) {
               for (let shift = topLimit - 1; shift > pos; shift--) {
@@ -4817,7 +4907,6 @@ function pipelineStageQuantizeC64KoalaBackground(id) {
             }
           }
         }
-        const fallback = firstEnabledPaletteIndex(pal, colorMask, pass.bgIdx);
         for (let i = 0; i < topLimit; i++) {
           if (pass.topIds[i] < 0) pass.topIds[i] = fallback;
         }
@@ -4886,6 +4975,7 @@ function pipelineStageQuantizeC64KoalaBlocks(id) {
     const colorMask = state.colorMasks[0];
     const work = state.work;
     const ditherMode = state.ditherMode;
+    const perceptual = state.perceptual;
     const colorStrategy = state.colorStrategy;
     const useSimplexCoverage = colorStrategy === "simplex-coverage";
     const bW = q.bW;
@@ -4903,7 +4993,7 @@ function pipelineStageQuantizeC64KoalaBlocks(id) {
         const blockX = bx * bW, blockY = by * bH;
         const source = q.evalSource;
         copyBlockToSource(source, work, screenW, blockX, blockY, bW, bH);
-        let best1 = pass.topIds[0], best2 = pass.topIds[1], best3 = pass.topIds[2];
+        let best1 = 0, best2 = 0, best3 = 0;
         let bestErr = Infinity;
         const colors = pass.candidateColors;
         colors[0] = pal[bestBg];
@@ -4950,7 +5040,7 @@ function pipelineStageQuantizeC64KoalaBlocks(id) {
                 colors[1] = pal[pass.topIds[i]];
                 colors[2] = pal[pass.topIds[j]];
                 colors[3] = pal[pass.topIds[k]];
-                const err = evaluateBlock(work, screenW, blockX, blockY, bW, bH, colors, ditherMode, q.evalTemp, source, bestErr);
+                const err = evaluateBlock(work, screenW, blockX, blockY, bW, bH, colors, ditherMode, q.evalTemp, source, bestErr, false, perceptual);
                 if (err < bestErr) {
                   bestErr = err;
                   best1 = pass.topIds[i];
@@ -5067,9 +5157,8 @@ function pipelineStageQuantizeGlobalFinish(id) {
     return;
   }
   const chosenIndices = pass.selectedIndices;
+  // chooseGreedyHullPaletteColors already filled selectedColors per slot.
   const chosenColors = pass.selectedColors;
-  chosenColors.length = pass.colorCount;
-  for (let i = 0; i < pass.colorCount; i++) chosenColors[i] = pass.pal[chosenIndices[i]];
   q.blockColors[0][0] = chosenColors;
   q.blockIndices[0][0] = chosenIndices;
   q.modeMeta.atariRegs = chosenIndices;
@@ -5085,7 +5174,6 @@ function pipelineStageDitherQuantizedBlocks(id) {
   state.scheduledTimeout = undefined;
   state.stage = "dither";
   pipelineSwitchTiming(state, "apply");
-  const mode = state.mode;
   const screenW = state.screenWidth;
   const screenH = state.screenHeight;
   const work = state.work;
@@ -5096,13 +5184,13 @@ function pipelineStageDitherQuantizedBlocks(id) {
   }
   const strategy = q.strategy;
   if (strategy === "zx81-character") {
-    pipelineStartZX81CharacterPass(id, mode === "zx81-equalized", work, screenW, screenH);
+    pipelineStartZX81CharacterPass(id, state.perceptual, work, screenW, screenH);
     return;
   }
   pipelineStartDitherPass(id, "initial");
 }
 
-function pipelineStartZX81CharacterPass(id, equalized, work, width, height) {
+function pipelineStartZX81CharacterPass(id, perceptual, work, width, height) {
   if (!pipelineIsCurrent(id)) return;
   const state = conversionPipelineState;
   const q = state.quantizeWork;
@@ -5119,7 +5207,7 @@ function pipelineStartZX81CharacterPass(id, equalized, work, width, height) {
     result: q.resultLinear,
     width,
     height,
-    equalized,
+    perceptual,
     cols,
     rows,
     chars,
@@ -5152,7 +5240,7 @@ function pipelineStageZX81CharacterBlocks(id) {
         const cy = (cell / pass.cols) | 0;
         const blockX = cx * 8;
         const blockY = cy * 8;
-        fillZX81BlockValues(pass.work, pass.width, blockX, blockY, pass.values, pass.equalized);
+        fillZX81BlockValues(pass.work, pass.width, blockX, blockY, pass.values, pass.perceptual);
         fillZX81Features(pass.values, pass.sourceFeatures);
 
         let best = pass.candidates[0];
@@ -5192,6 +5280,9 @@ function pipelineStartDitherPass(id, reason) {
   }
   const ditherMode = state.ditherMode;
   const kernel = DIFFUSION_KERNELS[ditherMode] || null;
+  // Block colors are stable for the duration of this pass; invalidate the
+  // perceptual conversion memo from any previous pass (GS may have changed colors).
+  perceptualBlockColorsSource = null;
   state.ditherPass = {
     reason,
     work: state.work,
@@ -5199,6 +5290,7 @@ function pipelineStartDitherPass(id, reason) {
     width: state.screenWidth,
     height: state.screenHeight,
     ditherMode,
+    perceptual: state.perceptual,
     blockColors: q.blockColors,
     linearRgbTwoColor: !!q.linearRgbTwoColor,
     bW: q.bW,
@@ -5241,6 +5333,7 @@ function pipelineStageDitherThresholdRows(id) {
     return;
   }
   try {
+    const sampleThreshold = getThresholdSampler(pass.ditherMode);
     const deadline = pipelineWorkDeadline();
     while (pass.y < pass.height) {
       const yEnd = Math.min(pass.height, pass.y + DITHER_ROW_CHUNK);
@@ -5265,7 +5358,7 @@ function pipelineStageDitherThresholdRows(id) {
             c0 = colors[0];
             c1 = colors[1];
           }
-          const threshold = getThreshold(pass.ditherMode, x, y);
+          const threshold = sampleThreshold(x, y);
           let chosen;
           if (twoColor) {
             const factor = blendFactorLinearRgb(r, g, b, c0, c1);
@@ -5321,7 +5414,13 @@ function pipelineStageDitherCopyTemp(id) {
       return;
     }
     if (pass.ditherMode === "adaptive-riemersma") {
-      pass.order = adaptiveSfcOrder(state, pass.work, pass.width, pass.height);
+      // The adaptive order depends only on pass.work, which is unchanged
+      // between the initial and GS re-dither passes of one conversion.
+      if (state.adaptiveSfcOrderId !== state.id || !state.adaptiveSfcOrderCached) {
+        state.adaptiveSfcOrderCached = adaptiveSfcOrder(state, pass.work, pass.width, pass.height);
+        state.adaptiveSfcOrderId = state.id;
+      }
+      pass.order = state.adaptiveSfcOrderCached;
       pass.errorQueue = state.riemersmaErrorBuffer = ensureFloat32Buffer(state.riemersmaErrorBuffer, RIEMERSMA_ERROR_QUEUE_LENGTH * 3);
       pass.errorQueue.fill(0);
       pass.errorHead = 0;
@@ -5366,6 +5465,7 @@ function pipelineStageDitherNearestRows(id) {
   }
   try {
     const linearRgbTwoColor = pass.linearRgbTwoColor;
+    const perceptual = pass.perceptual;
     const deadline = pipelineWorkDeadline();
     while (pass.y < pass.height) {
       const yEnd = Math.min(pass.height, pass.y + DITHER_ROW_CHUNK);
@@ -5390,18 +5490,11 @@ function pipelineStageDitherNearestRows(id) {
             c0 = colors[0];
             c1 = colors[1];
           }
-          let chosen;
-          if (twoColor) {
-            const d0r = r - c0[0], d0g = g - c0[1], d0b = b - c0[2];
-            const d1r = r - c1[0], d1g = g - c1[1], d1b = b - c1[2];
-            const d0 = linearRgbTwoColor ? d0r * d0r + d0g * d0g + d0b * d0b :
-              RGB_DISTANCE_WEIGHT_R * d0r * d0r + RGB_DISTANCE_WEIGHT_G * d0g * d0g + RGB_DISTANCE_WEIGHT_B * d0b * d0b;
-            const d1 = linearRgbTwoColor ? d1r * d1r + d1g * d1g + d1b * d1b :
-              RGB_DISTANCE_WEIGHT_R * d1r * d1r + RGB_DISTANCE_WEIGHT_G * d1g * d1g + RGB_DISTANCE_WEIGHT_B * d1b * d1b;
-            chosen = d1 < d0 ? c1 : c0;
-          } else {
-            chosen = colors[quantizeNearestLinearRgb(r, g, b, colors)];
-          }
+          const chosen = perceptual ?
+            colors[quantizeNearestPerceptual(r, g, b, colors)] :
+            twoColor ?
+              closerOfTwoColors(r, g, b, c0, c1, linearRgbTwoColor) :
+              colors[quantizeNearestLinearRgb(r, g, b, colors)];
           pass.result[idx] = chosen[0];
           pass.result[idx + 1] = chosen[1];
           pass.result[idx + 2] = chosen[2];
@@ -5461,20 +5554,9 @@ function pipelineStageDitherDiffusionRows(id) {
             c0 = colors[0];
             c1 = colors[1];
           }
-          let chosen;
-          if (twoColor) {
-            const d0r = r - c0[0], d0g = g - c0[1], d0b = b - c0[2];
-            const d1r = r - c1[0], d1g = g - c1[1], d1b = b - c1[2];
-            const d0 = linearRgbTwoColor ? d0r * d0r + d0g * d0g + d0b * d0b :
-              RGB_DISTANCE_WEIGHT_R * d0r * d0r + RGB_DISTANCE_WEIGHT_G * d0g * d0g + RGB_DISTANCE_WEIGHT_B * d0b * d0b;
-            const d1 = linearRgbTwoColor ? d1r * d1r + d1g * d1g + d1b * d1b :
-              RGB_DISTANCE_WEIGHT_R * d1r * d1r + RGB_DISTANCE_WEIGHT_G * d1g * d1g + RGB_DISTANCE_WEIGHT_B * d1b * d1b;
-            chosen = d1 < d0 ? c1 : c0;
-          } else {
-            chosen = colors[colors.length > 2 ?
-              quantizeNearestLinearRgb(r, g, b, colors) :
-              quantizeNearestColor(r, g, b, colors)];
-          }
+          const chosen = twoColor ?
+            closerOfTwoColors(r, g, b, c0, c1, linearRgbTwoColor) :
+            colors[quantizeNearestLinearRgb(r, g, b, colors)];
           pass.result[idx] = chosen[0];
           pass.result[idx + 1] = chosen[1];
           pass.result[idx + 2] = chosen[2];
@@ -5766,6 +5848,7 @@ function pipelineStageFinishDitherPass(id) {
     const q = state.quantizeWork;
     const needsGS =
       state.gaussSeidel &&
+      !isThresholdDither(state.ditherMode) &&
       q &&
       q.strategy === "exhaustive" &&
       (state.mode === "standard" || state.mode === "ts-standard" || state.mode === "ecm") &&
@@ -5784,43 +5867,28 @@ function pipelineStageFinishDitherPass(id) {
   pipelineFail(id, new Error(`Unknown dither pass reason: ${reason}`), "Unable to dither conversion result.");
 }
 
-// Stage 4f: run optional refinement after the first staged dither pass.
+// Stage 4f: start Gauss-Seidel refinement after the first staged dither pass.
+// The caller (pipelineStageFinishDitherPass) has already checked eligibility.
 function pipelineStageAfterInitialDither(id) {
   if (!pipelineIsCurrent(id)) return;
   const state = conversionPipelineState;
   state.scheduledTimeout = undefined;
   state.stage = "dither-after-initial";
-  const mode = state.mode;
-  const gaussSeidel = state.gaussSeidel;
   const q = state.quantizeWork;
   if (!q) {
     pipelineFail(id, new Error("Missing quantize state"), "Unable to dither conversion result.");
     return;
   }
-  const strategy = q.strategy;
-  const numAttrCols = q.numAttrCols;
-  const numAttrRows = q.numAttrRows;
-  const attrs = q.attrs;
-
-  if (
-    gaussSeidel &&
-    strategy === "exhaustive" &&
-    (mode === "standard" || mode === "ts-standard" || mode === "ecm") &&
-    attrs
-  ) {
-    state.gsBlockErrBuffer = ensureFloat32Buffer(state.gsBlockErrBuffer, numAttrRows * numAttrCols);
-    state.gsPass = {
-      blockErr: state.gsBlockErrBuffer,
-      offset: 0,
-      iter: 0,
-      changed: 0,
-      upgraded: 0,
-      threshold: 0,
-    };
-    pipelineStageGSComputeBlockErrors(id);
-    return;
-  }
-  pipelineStageCompleteDitherQuantizedBlocks(id);
+  state.gsBlockErrBuffer = ensureFloat32Buffer(state.gsBlockErrBuffer, q.numAttrRows * q.numAttrCols);
+  state.gsPass = {
+    blockErr: state.gsBlockErrBuffer,
+    offset: 0,
+    iter: 0,
+    changed: 0,
+    upgraded: 0,
+    threshold: 0,
+  };
+  pipelineStageGSComputeBlockErrors(id);
 }
 
 // Stage 4g: compute per-block errors for Gauss-Seidel refinement in chunks.
@@ -5836,6 +5904,7 @@ function pipelineStageGSComputeBlockErrors(id) {
     return;
   }
   try {
+    const perceptual = state.perceptual;
     const total = q.numAttrRows * q.numAttrCols;
     const deadline = pipelineWorkDeadline();
     while (pass.offset < total) {
@@ -5843,7 +5912,11 @@ function pipelineStageGSComputeBlockErrors(id) {
       for (let cell = pass.offset; cell < end; cell++) {
         const by = (cell / q.numAttrCols) | 0;
         const bx = cell - by * q.numAttrCols;
-        recomputeDitherBlockError(pass.blockErr, state.work, q.resultLinear, state.screenWidth, q.bW, q.bH, q.numAttrCols, by, bx);
+        if (perceptual) {
+          recomputeDitherBlockErrorPerceptual(pass.blockErr, state.work, q.resultLinear, state.screenWidth, q.bW, q.bH, q.numAttrCols, by, bx);
+        } else {
+          recomputeDitherBlockError(pass.blockErr, state.work, q.resultLinear, state.screenWidth, q.bW, q.bH, q.numAttrCols, by, bx);
+        }
       }
       pass.offset = end;
       if (pipelineShouldYield(deadline)) break;
@@ -5883,6 +5956,7 @@ function pipelineStageGSRefineBlocks(id) {
     const palettes = state.palettes;
     const colorMasks = state.colorMasks;
     const ditherMode = state.ditherMode;
+    const perceptual = state.perceptual;
     const total = q.numAttrRows * q.numAttrCols;
     const deadline = pipelineWorkDeadline();
     while (pass.offset < total) {
@@ -5901,7 +5975,7 @@ function pipelineStageGSRefineBlocks(id) {
         const pair = q.evalPair;
         pair[0] = palettes[curBright][curInk];
         pair[1] = palettes[curBright][curPaper];
-        let bestErr = evaluateBlock(work, screenW, blockX, blockY, q.bW, q.bH, pair, ditherMode, q.evalTemp, source, Infinity, true);
+        let bestErr = evaluateBlock(work, screenW, blockX, blockY, q.bW, q.bH, pair, ditherMode, q.evalTemp, source, Infinity, true, perceptual);
         let bestInk = curInk, bestPaper = curPaper, bestBright = curBright;
 
         for (let c = 0; c < 8; c++) {
@@ -5909,7 +5983,7 @@ function pipelineStageGSRefineBlocks(id) {
             const pal = palettes[curBright];
             pair[0] = pal[c];
             pair[1] = pal[curPaper];
-            const err = evaluateBlock(work, screenW, blockX, blockY, q.bW, q.bH, pair, ditherMode, q.evalTemp, source, bestErr, true);
+            const err = evaluateBlock(work, screenW, blockX, blockY, q.bW, q.bH, pair, ditherMode, q.evalTemp, source, bestErr, true, perceptual);
             if (err < bestErr) {
               bestErr = err;
               bestInk = c;
@@ -5921,7 +5995,7 @@ function pipelineStageGSRefineBlocks(id) {
             const pal = palettes[curBright];
             pair[0] = pal[curInk];
             pair[1] = pal[c];
-            const err = evaluateBlock(work, screenW, blockX, blockY, q.bW, q.bH, pair, ditherMode, q.evalTemp, source, bestErr, true);
+            const err = evaluateBlock(work, screenW, blockX, blockY, q.bW, q.bH, pair, ditherMode, q.evalTemp, source, bestErr, true, perceptual);
             if (err < bestErr) {
               bestErr = err;
               bestInk = curInk;
@@ -5936,7 +6010,7 @@ function pipelineStageGSRefineBlocks(id) {
           const pal = palettes[flipBright];
           pair[0] = pal[c];
           pair[1] = pal[curPaper];
-          const err = evaluateBlock(work, screenW, blockX, blockY, q.bW, q.bH, pair, ditherMode, q.evalTemp, source, bestErr, true);
+          const err = evaluateBlock(work, screenW, blockX, blockY, q.bW, q.bH, pair, ditherMode, q.evalTemp, source, bestErr, true, perceptual);
           if (err < bestErr) {
             bestErr = err;
             bestInk = c;
@@ -6080,7 +6154,7 @@ function pipelineStageFinishRenderConversionResult(id) {
   binaryExportState = state;
 
   // Render converted preview
-  renderConvertedPreview(resultLinear);
+  renderDisplayedOutput();
   initCRTBorderPicker();
   pipelineFinishTiming(state);
 
@@ -6102,6 +6176,7 @@ function quantizeNearestColor(r, g, b, colors) {
   for (let i = 0; i < colors.length; i++) {
     const color = colors[i];
     const d = colorDistance(r, g, b, color[0], color[1], color[2]);
+    if (d === 0) return i;
     if (d < bestDist) {
       bestDist = d;
       bestIdx = i;
@@ -6122,12 +6197,73 @@ function quantizeNearestLinearRgb(r, g, b, colors) {
   for (let i = 0; i < colors.length; i++) {
     const color = colors[i];
     const d = colorDistLinearRgb(r, g, b, color[0], color[1], color[2]);
+    if (d === 0) return i;
     if (d < bestDist) {
       bestDist = d;
       bestIdx = i;
     }
   }
   return bestIdx;
+}
+
+// --- Perceptual color matching (gamma-encoded weighted RGB) ---
+// Selection-only: pixel-to-palette matching happens on sRGB-encoded channels
+// weighted by the BT.709 coefficients, while all color mixing and diffused
+// error stay in linear RGB, where light combines correctly. The per-channel
+// sRGB transfer approximates perceptual lightness (undoing the dark-tone
+// compression of linear distances) while keeping hue behavior aligned with
+// plain RGB expectations. Callers test the perceptual switch themselves so
+// the linear distance leaf functions above stay monomorphic and easy to
+// inline.
+const perceptualPixel = new Float32Array(3);
+const perceptualPixel2 = new Float32Array(3);
+const perceptualBlockColors = new Float32Array(16 * 3);
+const perceptualEvalColors = new Float32Array(16 * 3);
+let perceptualBlockColorsSource = null;
+
+// Channels are pre-scaled by the BT.709 coefficients so a plain squared
+// distance over the converted values equals the weighted distance (the same
+// weighting colorDistance uses).
+function linearToPerceptual(out, offset, r, g, b) {
+  out[offset] = 0.2126 * linearToSrgbUnit(r);
+  out[offset + 1] = 0.7152 * linearToSrgbUnit(g);
+  out[offset + 2] = 0.0722 * linearToSrgbUnit(b);
+}
+
+function fillPerceptualColors(out, colors) {
+  for (let i = 0; i < colors.length; i++) {
+    const c = colors[i];
+    linearToPerceptual(out, i * 3, c[0], c[1], c[2]);
+  }
+}
+
+function nearestPerceptualIndex(converted, count, pr, pg, pb) {
+  let bestIdx = 0, bestDist = Infinity;
+  for (let i = 0; i < count; i++) {
+    const dr = pr - converted[i * 3];
+    const dg = pg - converted[i * 3 + 1];
+    const db = pb - converted[i * 3 + 2];
+    const d = dr * dr + dg * dg + db * db;
+    if (d === 0) return i;
+    if (d < bestDist) {
+      bestDist = d;
+      bestIdx = i;
+    }
+  }
+  return bestIdx;
+}
+
+// Nearest palette color in the perceptual space for the rendering stages.
+// Block color arrays are stable for the duration of one dither pass, so their
+// conversion is memoized by array identity; pipelineStartDitherPass resets
+// the memo.
+function quantizeNearestPerceptual(r, g, b, colors) {
+  if (perceptualBlockColorsSource !== colors) {
+    fillPerceptualColors(perceptualBlockColors, colors);
+    perceptualBlockColorsSource = colors;
+  }
+  linearToPerceptual(perceptualPixel, 0, r, g, b);
+  return nearestPerceptualIndex(perceptualBlockColors, colors.length, perceptualPixel[0], perceptualPixel[1], perceptualPixel[2]);
 }
 
 function det3(ax, ay, az, bx, by, bz, cx, cy, cz) {
@@ -6288,6 +6424,25 @@ function recomputeDitherBlockError(blockErr, work, result, width, bW, bH, numAtt
   blockErr[by * numAttrCols + bx] = sum;
 }
 
+// Perceptual variant so Gauss-Seidel triage ranks blocks in the same metric
+// that perceptual selection and candidate scoring use.
+function recomputeDitherBlockErrorPerceptual(blockErr, work, result, width, bW, bH, numAttrCols, by, bx) {
+  let sum = 0;
+  const blockX = bx * bW, blockY = by * bH;
+  for (let py = 0; py < bH; py++) {
+    for (let px = 0; px < bW; px++) {
+      const idx = ((blockY + py) * width + (blockX + px)) * 3;
+      linearToPerceptual(perceptualPixel, 0, work[idx], work[idx+1], work[idx+2]);
+      linearToPerceptual(perceptualPixel2, 0, result[idx], result[idx+1], result[idx+2]);
+      const dl = perceptualPixel[0] - perceptualPixel2[0];
+      const da = perceptualPixel[1] - perceptualPixel2[1];
+      const db = perceptualPixel[2] - perceptualPixel2[2];
+      sum += dl * dl + da * da + db * db;
+    }
+  }
+  blockErr[by * numAttrCols + bx] = sum;
+}
+
 // Reused by block scorers that evaluate several candidate palettes against the
 // same source block.
 function copyBlockToSource(out, work, width, bx, by, bw, bh) {
@@ -6308,10 +6463,11 @@ function copyBlockToSource(out, work, width, bx, by, bw, bh) {
 // pixel onto the two-color linear RGB segment before thresholding. For N>2,
 // threshold dithers use linear palette mixtures while none/error-diffusion
 // modes use linear RGB nearest-color choices.
-function evaluateBlock(work, width, bx, by, bw, bh, colors, ditherMode, temp, source, maxError = Infinity, linearRgbTwoColor = false) {
+function evaluateBlock(work, width, bx, by, bw, bh, colors, ditherMode, temp, source, maxError = Infinity, linearRgbTwoColor = false, perceptual = false) {
   let totalError = 0;
 
   if (isThresholdDither(ditherMode)) {
+    const sampleThreshold = getThresholdSampler(ditherMode);
     if (colors.length === 2) {
       const c0 = colors[0], c1 = colors[1];
       let src = 0;
@@ -6332,7 +6488,7 @@ function evaluateBlock(work, width, bx, by, bw, bh, colors, ditherMode, temp, so
           g = Math.max(0, Math.min(1, g));
           b = Math.max(0, Math.min(1, b));
           const factor = blendFactorLinearRgb(r, g, b, c0, c1);
-          const threshold = getThreshold(ditherMode, bx + px, by + py);
+          const threshold = sampleThreshold(bx + px, by + py);
           const chosen = factor > threshold ? c1 : c0;
           totalError += linearRgbTwoColor ?
             colorDistLinearRgb(r, g, b, chosen[0], chosen[1], chosen[2]) :
@@ -6360,7 +6516,7 @@ function evaluateBlock(work, width, bx, by, bw, bh, colors, ditherMode, temp, so
           r = Math.max(0, Math.min(1, r));
           g = Math.max(0, Math.min(1, g));
           b = Math.max(0, Math.min(1, b));
-          const threshold = getThreshold(ditherMode, bx + px, by + py);
+          const threshold = sampleThreshold(bx + px, by + py);
           const chosen = colors[chooseOrderedPaletteIndex(r, g, b, colors, threshold)];
           totalError += colorDistLinearRgb(r, g, b, chosen[0], chosen[1], chosen[2]);
           if (totalError >= maxError) return totalError;
@@ -6389,6 +6545,10 @@ function evaluateBlock(work, width, bx, by, bw, bh, colors, ditherMode, temp, so
   }
 
   const kernel = DIFFUSION_KERNELS[ditherMode];
+  const useLinearRgb = linearRgbTwoColor || colors.length > 2;
+  // Candidate color arrays are mutated between calls, so convert them fresh
+  // here instead of going through the identity-memoized rendering path.
+  if (perceptual) fillPerceptualColors(perceptualEvalColors, colors);
 
   for (let py = 0; py < bh; py++) {
     for (let px = 0; px < bw; px++) {
@@ -6396,13 +6556,26 @@ function evaluateBlock(work, width, bx, by, bw, bh, colors, ditherMode, temp, so
       const r = Math.max(0, Math.min(1, temp[tIdx]));
       const g = Math.max(0, Math.min(1, temp[tIdx+1]));
       const b = Math.max(0, Math.min(1, temp[tIdx+2]));
-      const ci = linearRgbTwoColor || colors.length > 2 ?
-        quantizeNearestLinearRgb(r, g, b, colors) :
-        quantizeNearestColor(r, g, b, colors);
+      let ci;
+      if (perceptual) {
+        linearToPerceptual(perceptualPixel, 0, r, g, b);
+        ci = nearestPerceptualIndex(perceptualEvalColors, colors.length, perceptualPixel[0], perceptualPixel[1], perceptualPixel[2]);
+      } else {
+        ci = useLinearRgb ?
+          quantizeNearestLinearRgb(r, g, b, colors) :
+          quantizeNearestColor(r, g, b, colors);
+      }
       const chosen = colors[ci];
-      totalError += linearRgbTwoColor || colors.length > 2 ?
-        colorDistLinearRgb(r, g, b, chosen[0], chosen[1], chosen[2]) :
-        colorDistance(r, g, b, chosen[0], chosen[1], chosen[2]);
+      if (perceptual) {
+        const dl = perceptualPixel[0] - perceptualEvalColors[ci * 3];
+        const da = perceptualPixel[1] - perceptualEvalColors[ci * 3 + 1];
+        const db = perceptualPixel[2] - perceptualEvalColors[ci * 3 + 2];
+        totalError += dl * dl + da * da + db * db;
+      } else {
+        totalError += useLinearRgb ?
+          colorDistLinearRgb(r, g, b, chosen[0], chosen[1], chosen[2]) :
+          colorDistance(r, g, b, chosen[0], chosen[1], chosen[2]);
+      }
       if (totalError >= maxError) return totalError;
 
       if (kernel) {
@@ -6439,36 +6612,33 @@ function getBlockDitherColors(blockColors, x, y, bW, bH, numAttrCols, numAttrRow
   return blockColors[by][bx];
 }
 
-// --- Generate Standard ZX Spectrum SCREEN$ (6912 bytes) ---
-function generateStandardScreen(pixels, attrs) {
+// --- Generate Standard ZX Spectrum / TS 2068 SCREEN$ (6912 bytes) ---
+// brightPalette selects the machine's bright behavior: ZX Spectrum bright
+// black is pure black, TS 2068 bright black is dark gray.
+function generateStandardScreen(pixels, attrs, brightPalette) {
   const scr = new Uint8Array(6912);
 
   // Pixel data: 6144 bytes
   for (let y = 0; y < 192; y++) {
     // Spectrum screen memory address for line y
     const addr = ((y & 0xC0) << 5) | ((y & 0x07) << 8) | ((y & 0x38) << 2);
+    const attrRow = (y >> 3) * 32;
     for (let col = 0; col < 32; col++) {
+      const attr = attrs[attrRow + col];
+      const ink = attr & 0x07;
+      const paper = (attr >> 3) & 0x07;
+      const bright = (attr >> 6) & 0x01;
+      const pal = bright ? brightPalette : PALETTE_NORMAL;
+      const inkRGB = pal[ink], paperRGB = pal[paper];
       let byte = 0;
       for (let bit = 0; bit < 8; bit++) {
         const x = col * 8 + bit;
         const pIdx = (y * 256 + x) * 3;
-        // Determine which attribute block this pixel is in
-        const attrIdx = Math.floor(y / 8) * 32 + col;
-        const attr = attrs[attrIdx];
-        const ink = attr & 0x07;
-        const paper = (attr >> 3) & 0x07;
-        const bright = (attr >> 6) & 0x01;
-        // ZX Spectrum standard mode: bright black = pure black
-        const pal = bright ? PALETTE_ZX_BRIGHT : PALETTE_NORMAL;
-
         // Is this pixel ink (1) or paper (0)?
         const r = pixels[pIdx], g = pixels[pIdx+1], b = pixels[pIdx+2];
-        const inkRGB = pal[ink], paperRGB = pal[paper];
         const inkDist = colorDistance(r, g, b, inkRGB[0], inkRGB[1], inkRGB[2]);
         const paperDist = colorDistance(r, g, b, paperRGB[0], paperRGB[1], paperRGB[2]);
-        if (inkDist <= paperDist) {
-          byte |= (0x80 >> bit);
-        }
+        if (inkDist <= paperDist) byte |= (0x80 >> bit);
       }
       scr[addr + col] = byte;
     }
@@ -6634,6 +6804,10 @@ function generateC64Koala(pixels, blockColors, blockIndices, bgIdx) {
           for (let k = 0; k < 4; k++) {
             const color = colors[k];
             const d = colorDistance(r, g, b, color[0], color[1], color[2]);
+            if (d === 0) {
+              best = k;
+              break;
+            }
             if (d < bestD) {
               bestD = d;
               best = k;
@@ -6677,6 +6851,10 @@ function generateAtariGr15(pixels, regIndices) {
         for (let k = 0; k < 4; k++) {
           const color = colors[k];
           const d = colorDistance(r, g, b, color[0], color[1], color[2]);
+          if (d === 0) {
+            best = k;
+            break;
+          }
           if (d < bestD) {
             bestD = d;
             best = k;
@@ -6688,9 +6866,13 @@ function generateAtariGr15(pixels, regIndices) {
       bitmap[y * 40 + xb] = byte;
     }
   }
-  // Registers: COLBK, COLPF0, COLPF1, COLPF2 — Atari HW register value = paletteIndex * 2
-  // (128-color palette; registers are 8-bit hue/luma)
-  for (let i = 0; i < 4; i++) out[7680 + i] = (regIndices[i] * 2) & 0xFE;
+  // MicroPainter trailer stores shadow registers 708, 709, 710, 712 in order:
+  // COLPF0, COLPF1, COLPF2, then COLBK last. Atari HW register value =
+  // paletteIndex * 2 (128-color palette; registers are 8-bit hue/luma).
+  out[7680] = (regIndices[1] * 2) & 0xFE;
+  out[7681] = (regIndices[2] * 2) & 0xFE;
+  out[7682] = (regIndices[3] * 2) & 0xFE;
+  out[7683] = (regIndices[0] * 2) & 0xFE;
   return out;
 }
 
@@ -6929,17 +7111,22 @@ function getActiveOutputState() {
 
 function getSavedOutputState() {
   if (!abSnapshot) return null;
-  const modeCfg = abSnapshot.modeCfg || modes[abSnapshot.mode] || modes.standard;
-  return {
-    pixels: abSnapshot.pixels,
-    w: abSnapshot.w,
-    h: abSnapshot.h,
-    mode: abSnapshot.mode,
-    modeCfg,
-    displayAspect: abSnapshot.displayAspect,
-    outScale: abSnapshot.outScale,
-    revision: abSnapshot.revision ?? 0,
-  };
+  // Called per animation frame while viewing a snapshot; cache the state
+  // object on the (immutable) snapshot instead of allocating each time.
+  if (!abSnapshot.outputState) {
+    const modeCfg = abSnapshot.modeCfg || modes[abSnapshot.mode] || modes.standard;
+    abSnapshot.outputState = {
+      pixels: abSnapshot.pixels,
+      w: abSnapshot.w,
+      h: abSnapshot.h,
+      mode: abSnapshot.mode,
+      modeCfg,
+      displayAspect: abSnapshot.displayAspect,
+      outScale: abSnapshot.outScale,
+      revision: abSnapshot.revision ?? 0,
+    };
+  }
+  return abSnapshot.outputState;
 }
 
 function getDisplayedOutputState() {
@@ -6964,10 +7151,6 @@ function renderDisplayedOutput(shaderTime = performance.now() * 0.001) {
   if (fullscreenMode === "output" && UI.fsOverlay && UI.fsOverlay.classList.contains("visible")) {
     renderFullscreenCanvas(shaderTime);
   }
-}
-
-function renderConvertedPreview(pixels) {
-  renderDisplayedOutput();
 }
 
 function getOutputScale(modeCfg) {
@@ -7101,7 +7284,7 @@ function buildBinaryExportData() {
   let blocks = null;
 
   if (mode === "standard" || mode === "ts-standard") {
-    bytes = generateStandardScreen(pixels, attrs);
+    bytes = generateStandardScreen(pixels, attrs, mode === "ts-standard" ? PALETTE_TS_BRIGHT : PALETTE_ZX_BRIGHT);
     blocks = [{ data: bytes, addr: 0x4000, name: "screen" }];
   } else if (mode === "ecm") {
     const { pixels: pixBytes, attribs: attrBytes } = generateECMScreen(pixels, attrs);
@@ -7140,7 +7323,7 @@ function buildBinaryExportData() {
     bytes = generateQLMode4(pixels);
   } else if (mode === "pico8") {
     bytes = generatePico8Bin(pixels);
-  } else if (isZX81Mode(mode)) {
+  } else if (mode === "zx81") {
     bytes = generateZX81Output(modeMeta.zx81Chars);
   } else {
     bytes = new Uint8Array(0);
@@ -7164,14 +7347,12 @@ function downloadBlob(blob, filename) {
 }
 
 let exportImageCanvas = null;
-let exportImageRenderer = null;
 
 function getExportImageRenderer() {
   if (!exportImageCanvas) exportImageCanvas = document.createElement("canvas");
-  if (!exportImageRenderer) {
-    exportImageRenderer = getWebGLCanvasRenderer(exportImageCanvas, { preserveDrawingBuffer: true });
-  }
-  return exportImageRenderer;
+  // Delegate caching to getWebGLCanvasRenderer so a restored WebGL context
+  // is picked up instead of holding a stale renderer here.
+  return getWebGLCanvasRenderer(exportImageCanvas, { preserveDrawingBuffer: true });
 }
 
 function exportImage(format, scale) {
@@ -7251,12 +7432,6 @@ UI.exportJpg4x.addEventListener("click", () => exportImage("jpg", 4));
 // ============================================================
 let crtOutputRenderer = null;
 let crtFullscreenRenderer = null;
-let crtFullscreenRendererSource = null;
-let crtFullscreenRendererWidth = 0;
-let crtFullscreenRendererHeight = 0;
-let crtFullscreenRendererDisplayAspect = 1;
-let crtFullscreenRendererOutScale = 1;
-let crtFullscreenRendererRevision = -1;
 let crtOutputRendererUnavailable = false;
 let crtAnimationStarted = false;
 let crtBorderColorIndex = 0;
@@ -7375,54 +7550,45 @@ function updateCRTControlAvailability() {
   setControlVisible(UI.crtBloomThresholdRow, bloomEnabled);
 }
 
+// Single source of truth for CRT slider label formatting, shared by the
+// slider input handlers and profile import.
+function updateCRTSliderLabels() {
+  UI.root.style.setProperty("--crt-scale", String(UI.scaleSlider.value));
+  UI.scaleText.textContent = Number(UI.scaleSlider.value).toFixed(2);
+  UI.crtBrightnessText.textContent = String(parseInt(UI.crtBrightnessSlider.value, 10));
+  UI.crtContrastText.textContent = String(parseInt(UI.crtContrastSlider.value, 10));
+  UI.crtSaturationText.textContent = String(parseInt(UI.crtSaturationSlider.value, 10));
+  UI.crtNoiseText.textContent = String(parseInt(UI.crtNoiseSlider.value, 10));
+  UI.crtBleedText.textContent = Number(UI.crtBleedSlider.value).toFixed(1);
+  UI.crtBloomText.textContent = Number(UI.crtBloomSlider.value).toFixed(1);
+  UI.crtBloomSpreadText.textContent = Number(UI.crtBloomSpreadSlider.value).toFixed(1);
+  UI.crtBloomThresholdText.textContent = Number(UI.crtBloomThresholdSlider.value).toFixed(2);
+  UI.crtVignetteText.textContent = Number(UI.crtVignetteSlider.value).toFixed(1);
+}
+
 function initCRTControls() {
   UI.crtSwitch.onchange = applyCRTFrame;
-  UI.scaleSlider.oninput = function () {
-    UI.root.style.setProperty("--crt-scale", String(UI.scaleSlider.value));
-    UI.scaleText.textContent = Number(UI.scaleSlider.value).toFixed(2);
-    requestCRTOutputRender();
-  };
 
   initCRTBorderPicker();
 
-  UI.crtBrightnessSlider.oninput = function () {
-    UI.crtBrightnessText.textContent = String(parseInt(UI.crtBrightnessSlider.value, 10));
-    requestCRTOutputRender();
-  };
-  UI.crtContrastSlider.oninput = function () {
-    UI.crtContrastText.textContent = String(parseInt(UI.crtContrastSlider.value, 10));
-    requestCRTOutputRender();
-  };
-  UI.crtSaturationSlider.oninput = function () {
-    UI.crtSaturationText.textContent = String(parseInt(UI.crtSaturationSlider.value, 10));
-    requestCRTOutputRender();
-  };
-  UI.crtNoiseSlider.oninput = function () {
-    UI.crtNoiseText.textContent = String(parseInt(UI.crtNoiseSlider.value, 10));
-    requestCRTOutputRender();
-  };
-  UI.crtBleedSlider.oninput = function () {
-    UI.crtBleedText.textContent = Number(UI.crtBleedSlider.value).toFixed(1);
-    requestCRTOutputRender();
-  };
+  const sliders = [
+    UI.scaleSlider, UI.crtBrightnessSlider, UI.crtContrastSlider,
+    UI.crtSaturationSlider, UI.crtNoiseSlider, UI.crtBleedSlider,
+    UI.crtBloomSpreadSlider, UI.crtBloomThresholdSlider, UI.crtVignetteSlider,
+  ];
+  for (const slider of sliders) {
+    slider.oninput = function () {
+      updateCRTSliderLabels();
+      requestCRTOutputRender();
+    };
+  }
   UI.crtBloomSlider.oninput = function () {
-    UI.crtBloomText.textContent = Number(UI.crtBloomSlider.value).toFixed(1);
+    updateCRTSliderLabels();
     updateCRTControlAvailability();
     requestCRTOutputRender();
   };
-  UI.crtBloomSpreadSlider.oninput = function () {
-    UI.crtBloomSpreadText.textContent = Number(UI.crtBloomSpreadSlider.value).toFixed(1);
-    requestCRTOutputRender();
-  };
-  UI.crtBloomThresholdSlider.oninput = function () {
-    UI.crtBloomThresholdText.textContent = Number(UI.crtBloomThresholdSlider.value).toFixed(2);
-    requestCRTOutputRender();
-  };
-  UI.crtVignetteSlider.oninput = function () {
-    UI.crtVignetteText.textContent = Number(UI.crtVignetteSlider.value).toFixed(1);
-    requestCRTOutputRender();
-  };
   UI.crtScanlinesSwitch.onchange = requestCRTOutputRender;
+  updateCRTSliderLabels();
   updateCRTControlAvailability();
   applyCRTFrame();
 }
@@ -7500,25 +7666,22 @@ initCRTControls();
 // Zoom controls + fullscreen
 // ============================================================
 
-function resetCRTFullscreenRenderer() {
-  crtFullscreenRenderer = null;
-  crtFullscreenRendererSource = null;
-  crtFullscreenRendererWidth = 0;
-  crtFullscreenRendererHeight = 0;
-  crtFullscreenRendererDisplayAspect = 1;
-  crtFullscreenRendererOutScale = 1;
-  crtFullscreenRendererRevision = -1;
-}
+// One canvas (and thus one WebGL context) per fullscreen kind; swapping kinds
+// reuses the cached canvas instead of creating a fresh WebGL context each time.
+const fullscreenCanvasByKind = {};
 
 function getFullscreenCanvas(kind) {
   const canvas = UI.fsCanvas;
   if (fullscreenCanvasKind === kind) return canvas;
-  const replacement = document.createElement("canvas");
-  replacement.id = "fsCanvas";
+  if (fullscreenCanvasKind) fullscreenCanvasByKind[fullscreenCanvasKind] = canvas;
+  let replacement = fullscreenCanvasByKind[kind];
+  if (!replacement) {
+    replacement = document.createElement("canvas");
+    replacement.id = "fsCanvas";
+  }
   canvas.replaceWith(replacement);
   UI.fsCanvas = replacement;
   fullscreenCanvasKind = kind;
-  resetCRTFullscreenRenderer();
   return replacement;
 }
 
@@ -7529,31 +7692,12 @@ function getCRTFullscreenRenderer() {
   return crtFullscreenRenderer;
 }
 
-function syncCRTFullscreenRenderer(renderer, state) {
-  if (
-    crtFullscreenRendererSource === state.pixels &&
-    crtFullscreenRendererWidth === state.w &&
-    crtFullscreenRendererHeight === state.h &&
-    crtFullscreenRendererDisplayAspect === state.displayAspect &&
-    crtFullscreenRendererOutScale === state.outScale &&
-    crtFullscreenRendererRevision === (state.revision ?? 0)
-  ) {
-    return;
-  }
-  crtSetImage(renderer, state.pixels, state.w, state.h, state.displayAspect, state.outScale, getModeBorder(state.modeCfg), state.revision ?? 0);
-  crtFullscreenRendererSource = state.pixels;
-  crtFullscreenRendererWidth = state.w;
-  crtFullscreenRendererHeight = state.h;
-  crtFullscreenRendererDisplayAspect = state.displayAspect;
-  crtFullscreenRendererOutScale = state.outScale;
-  crtFullscreenRendererRevision = state.revision ?? 0;
-}
-
 function getFullscreenViewportSize() {
   const overlay = UI.fsOverlay;
   if (
     overlay.classList.contains("visible") &&
     !document.fullscreenElement &&
+    !fullscreenRequestFailed &&
     screen.width > 0 &&
     screen.height > 0
   ) {
@@ -7586,7 +7730,8 @@ function renderFullscreenCanvas(shaderTime = performance.now() * 0.001) {
   const viewport = getFullscreenViewportSize();
   const scale = getFullscreenOutputScale(state);
   const renderer = getCRTFullscreenRenderer();
-  syncCRTFullscreenRenderer(renderer, state);
+  // crtSetImage memoizes on pixels identity/size/aspect/revision internally.
+  crtSetImage(renderer, state.pixels, state.w, state.h, state.displayAspect, state.outScale, getModeBorder(state.modeCfg), state.revision ?? 0);
   const settings = getCRTSettings(scale, state.modeCfg);
   settings.viewportWidth = viewport.width;
   settings.viewportHeight = viewport.height;
@@ -7650,13 +7795,24 @@ function hideFullscreenOverlay() {
 function enterFullscreenMode(mode) {
   const overlay = UI.fsOverlay;
   fullscreenMode = mode;
+  fullscreenRequestFailed = false;
   overlay.classList.add("visible");
   rerenderFullscreenSoon();
   if (!document.fullscreenElement && overlay.requestFullscreen) {
+    let request = null;
     try {
-      overlay.requestFullscreen();
+      request = overlay.requestFullscreen();
     } catch (err) {
+      fullscreenRequestFailed = true;
       rerenderFullscreenSoon();
+    }
+    // Permission/gesture failures reject the returned promise rather than
+    // throwing; fall back to window-sized rendering instead of screen-sized.
+    if (request && request.then) {
+      request.then(null, () => {
+        fullscreenRequestFailed = true;
+        rerenderFullscreenSoon();
+      });
     }
   }
 }
@@ -7673,11 +7829,10 @@ function openInputFullscreen() {
 function closeFullscreen() {
   if (document.fullscreenElement) {
     try {
-      document.exitFullscreen();
-    } catch (err) {
-      hideFullscreenOverlay();
-      return;
-    }
+      const result = document.exitFullscreen();
+      // The overlay is hidden below either way; just silence the rejection.
+      if (result && result.then) result.then(null, () => {});
+    } catch (err) {}
   }
   hideFullscreenOverlay();
 }
@@ -7737,6 +7892,7 @@ UI.snapshotBtn.addEventListener("click", () => {
     displayAspect: state.displayAspect,
     outScale: state.outScale,
     revision: state.revision ?? 0,
+    outputState: null, // lazily filled by getSavedOutputState
   };
   updateOutputViewControls();
   if (outputViewMode === "saved") renderDisplayedOutput();
@@ -7788,8 +7944,10 @@ function getCurrentProfile() {
     crtBloomSpread: Number(UI.crtBloomSpreadSlider.value),
     crtBloomThreshold: Number(UI.crtBloomThresholdSlider.value),
     crtVignette: Number(UI.crtVignetteSlider.value),
-    crtBorderColorIndex,
+    // undefined means "no border color"; export null so JSON keeps the key.
+    crtBorderColorIndex: crtBorderColorIndex === undefined ? null : crtBorderColorIndex,
     crtScanlines: UI.crtScanlinesSwitch.checked,
+    perceptual: UI.perceptualSwitch.checked,
     serpentine: UI.serpentine.checked,
     gaussSeidel: UI.gaussSeidel.checked,
     disabledColors: disabledColorProfile,
@@ -7799,11 +7957,31 @@ function getCurrentProfile() {
 }
 
 function setProfileControl(control, value) {
-  if (value != null) control.value = value;
+  if (value == null) return;
+  if (control.tagName === "SELECT") {
+    // Assigning an unknown value would leave the select with no selection;
+    // keep the current option instead.
+    const text = String(value);
+    for (const option of control.options) {
+      if (option.value === text) {
+        control.value = text;
+        return;
+      }
+    }
+    return;
+  }
+  control.value = value;
 }
 
 function applyProfile(p) {
   if (!p) return;
+  // The former split ZX81 modes map to the single mode + perceptual switch.
+  if (p.mode === "zx81-equalized" || p.mode === "zx81-linear") {
+    if (p.perceptual == null && p.okLab == null) {
+      UI.perceptualSwitch.checked = p.mode === "zx81-equalized";
+    }
+    p.mode = "zx81";
+  }
   if (p.mode && (modes[p.mode])) {
     UI.displayMode.value = p.mode;
     currentMode = p.mode;
@@ -7840,8 +8018,13 @@ function applyProfile(p) {
   setProfileControl(UI.crtBloomSpreadSlider, p.crtBloomSpread);
   setProfileControl(UI.crtBloomThresholdSlider, p.crtBloomThreshold);
   setProfileControl(UI.crtVignetteSlider, p.crtVignette);
-  if (p.crtBorderColorIndex !== undefined) crtBorderColorIndex = p.crtBorderColorIndex;
+  if (p.crtBorderColorIndex !== undefined) {
+    crtBorderColorIndex = p.crtBorderColorIndex === null ? undefined : p.crtBorderColorIndex;
+  }
   if (p.crtScanlines != null) UI.crtScanlinesSwitch.checked = !!p.crtScanlines;
+  // "okLab" is the former name of the perceptual switch in exported profiles.
+  if (p.perceptual != null) UI.perceptualSwitch.checked = !!p.perceptual;
+  else if (p.okLab != null) UI.perceptualSwitch.checked = !!p.okLab;
   if (p.serpentine != null) UI.serpentine.checked = !!p.serpentine;
   if (p.gaussSeidel != null) UI.gaussSeidel.checked = !!p.gaussSeidel;
   if (p.disabledColors) {
@@ -7866,7 +8049,16 @@ function applyProfile(p) {
     updateCropFillButton();
   }
   if (p.cropRect && sourceImage) {
-    cropRect = { x: p.cropRect.x, y: p.cropRect.y, w: p.cropRect.w, h: p.cropRect.h };
+    // Sanitize: the profile may come from a different image size or be edited.
+    const x = Number(p.cropRect.x), y = Number(p.cropRect.y);
+    const w = Number(p.cropRect.w), h = Number(p.cropRect.h);
+    if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(w) && Number.isFinite(h)) {
+      const cx = Math.max(0, Math.min(sourceImage.width - 1, x));
+      const cy = Math.max(0, Math.min(sourceImage.height - 1, y));
+      const cw = Math.max(1, Math.min(sourceImage.width - cx, w));
+      const ch = Math.max(1, Math.min(sourceImage.height - cy, h));
+      cropRect = { x: cx, y: cy, w: cw, h: ch };
+    }
   }
   // Update display values
   UI.brightnessVal.textContent = UI.brightness.value;
@@ -7874,17 +8066,7 @@ function applyProfile(p) {
   UI.saturationVal.textContent = UI.saturation.value;
   UI.gammaVal.textContent = (parseInt(UI.gamma.value, 10) / 100).toFixed(2);
   updateAtariGr8LumaLabels();
-  UI.root.style.setProperty("--crt-scale", String(UI.scaleSlider.value));
-  UI.scaleText.textContent = Number(UI.scaleSlider.value).toFixed(2);
-  UI.crtBrightnessText.textContent = UI.crtBrightnessSlider.value;
-  UI.crtContrastText.textContent = UI.crtContrastSlider.value;
-  UI.crtSaturationText.textContent = UI.crtSaturationSlider.value;
-  UI.crtNoiseText.textContent = UI.crtNoiseSlider.value;
-  UI.crtBleedText.textContent = Number(UI.crtBleedSlider.value).toFixed(1);
-  UI.crtBloomText.textContent = Number(UI.crtBloomSlider.value).toFixed(1);
-  UI.crtBloomSpreadText.textContent = Number(UI.crtBloomSpreadSlider.value).toFixed(1);
-  UI.crtBloomThresholdText.textContent = Number(UI.crtBloomThresholdSlider.value).toFixed(2);
-  UI.crtVignetteText.textContent = Number(UI.crtVignetteSlider.value).toFixed(1);
+  updateCRTSliderLabels();
   initCRTBorderPicker();
   updateModeUI();
   updateCRTControlAvailability();
@@ -7939,6 +8121,10 @@ UI.modesFileInput.addEventListener("change", e => {
         }
         if (missing) {
           console.warn(`Skipping custom mode "${name}" — missing: ${missing}`);
+          continue;
+        }
+        if (modes[name] && !customModeNames.has(name)) {
+          console.warn(`Skipping custom mode "${name}" — name collides with a built-in mode`);
           continue;
         }
         const modeCfg = {};
@@ -8154,6 +8340,7 @@ function createGPUImageProcessor() {
   const gl = canvas.getContext("webgl2", { antialias: false, premultipliedAlpha: false });
   if (!gl) throw new Error("WebGL2 is not available");
   if (!gl.getExtension("EXT_color_buffer_float")) throw new Error("EXT_color_buffer_float is not available");
+  watchWebGLContextLoss(canvas, () => { gpuImageProcessor = null; });
   const adjustProgram = createGPUProgram(gl, GPU_QUAD_VERT_GLSL, GPU_ADJUST_FRAG_GLSL, "adjust");
   return {
     canvas,
@@ -8432,6 +8619,22 @@ void main() {
   v_texCoord = texCoords[gl_VertexID];
 }`;
 
+// Shared GLSL snippets, composed into shaders via template interpolation.
+const LINEAR_TO_SRGB_GLSL = `
+vec3 linearToSRGB(vec3 c) {
+  return mix(12.92 * c, 1.055 * pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
+}`;
+
+// Brightness/contrast/saturation/gamma adjustment on linear-light color.
+const ADJUST_COLOR_GLSL = `
+vec3 adjustColor(vec3 color, float brightness, float contrast, float saturation, float gamma) {
+  color = (color - 0.18) * contrast + 0.18 + brightness;
+  float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
+  color = mix(vec3(luma), color, saturation);
+  color = pow(max(color, vec3(0.0)), vec3(1.0 / max(gamma, 0.001)));
+  return clamp(color, 0.0, 1.0);
+}`;
+
 const GPU_ADJUST_FRAG_GLSL = `#version 300 es
 precision highp float;
 precision highp sampler2D;
@@ -8451,20 +8654,14 @@ out vec4 o_color;
 vec3 sRGBToLinear(vec3 c) {
   return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
 }
-
-vec3 linearToSRGB(vec3 c) {
-  return mix(12.92 * c, 1.055 * pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
-}
+${LINEAR_TO_SRGB_GLSL}
+${ADJUST_COLOR_GLSL}
 
 void main() {
   vec2 uv = vec2(v_texCoord.x, u_flipY ? 1.0 - v_texCoord.y : v_texCoord.y);
   vec4 texel = texture(u_texSlot, uv);
   vec3 color = u_sourceLinear ? texel.rgb : sRGBToLinear(texel.rgb);
-  color = (color - 0.18) * u_contrast + 0.18 + u_brightness;
-  float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
-  color = mix(vec3(luma), color, u_saturation);
-  color = pow(max(color, 0.0), vec3(1.0 / max(u_gamma, 0.001)));
-  color = clamp(color, 0.0, 1.0);
+  color = adjustColor(color, u_brightness, u_contrast, u_saturation, u_gamma);
   if (u_useSRGB) {
     color = linearToSRGB(color);
   }
@@ -8482,36 +8679,48 @@ function createGPUProgram(gl, vertGLSL, fragGLSL, id) {
   gl.attachShader(prog, vert);
   gl.attachShader(prog, frag);
   gl.linkProgram(prog);
-  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
-    let details = "";
-    const programLog = gl.getProgramInfoLog(prog);
-    const vertLog = gl.getShaderInfoLog(vert);
-    const fragLog = gl.getShaderInfoLog(frag);
-    if (programLog) {
-      const clean = programLog.replace("\0", "").trim();
-      if (clean) details += clean;
-    }
-    if (vertLog) {
-      const clean = vertLog.replace("\0", "").trim();
+  const linked = gl.getProgramParameter(prog, gl.LINK_STATUS);
+  let details = "";
+  if (!linked) {
+    for (const infoLog of [gl.getProgramInfoLog(prog), gl.getShaderInfoLog(vert), gl.getShaderInfoLog(frag)]) {
+      const clean = infoLog ? infoLog.replace(/\0/g, "").trim() : "";
       if (clean) details += (details ? "\n" : "") + clean;
     }
-    if (fragLog) {
-      const clean = fragLog.replace("\0", "").trim();
-      if (clean) details += (details ? "\n" : "") + clean;
-    }
+  }
+  // Shader objects are not needed once linking has been attempted.
+  gl.deleteShader(vert);
+  gl.deleteShader(frag);
+  if (!linked) {
+    gl.deleteProgram(prog);
     throw new Error(`${id} shader failed: ${details}`);
   }
   return prog;
 }
 
 const webglCanvasRenderers = new WeakMap();
+const webglContextWatchedCanvases = new WeakSet();
+
+// Browsers evict WebGL contexts under memory pressure or when too many exist.
+// preventDefault() on the lost event allows the context to be restored later;
+// on restore, the invalidate callback drops cached renderer objects so the
+// next render recreates programs and textures on the restored context.
+function watchWebGLContextLoss(canvas, invalidate) {
+  if (webglContextWatchedCanvases.has(canvas)) return;
+  webglContextWatchedCanvases.add(canvas);
+  canvas.addEventListener("webglcontextlost", e => e.preventDefault());
+  canvas.addEventListener("webglcontextrestored", invalidate);
+}
 
 function getWebGLCanvasRenderer(canvas, options = {}) {
   const preserveDrawingBuffer = !!options.preserveDrawingBuffer;
   let renderer = webglCanvasRenderers.get(canvas);
-  if (!renderer || renderer.preserveDrawingBuffer !== preserveDrawingBuffer) {
+  if (!renderer) {
     renderer = createWebGLCanvasRenderer(canvas, { preserveDrawingBuffer });
     webglCanvasRenderers.set(canvas, renderer);
+  } else if (renderer.preserveDrawingBuffer !== preserveDrawingBuffer) {
+    // getContext() returns the existing context with its original attributes,
+    // so the flag cannot be changed after creation; use a dedicated canvas.
+    throw new Error("Canvas already has a WebGL context with a different preserveDrawingBuffer");
   }
   return renderer;
 }
@@ -8524,6 +8733,7 @@ function createWebGLCanvasRenderer(canvas, { preserveDrawingBuffer = false } = {
     preserveDrawingBuffer,
   });
   if (!gl) throw new Error("WebGL2 is not available for canvas rendering");
+  watchWebGLContextLoss(canvas, () => webglCanvasRenderers.delete(canvas));
   const imageProgram = createGPUProgram(gl, WEBGL_CANVAS_IMAGE_VERT_GLSL, WEBGL_CANVAS_IMAGE_FRAG_GLSL, "canvas-image");
   const rectProgram = createGPUProgram(gl, WEBGL_CANVAS_RECT_VERT_GLSL, WEBGL_CANVAS_RECT_FRAG_GLSL, "canvas-rect");
   return {
@@ -8566,12 +8776,15 @@ function createWebGLCanvasRenderer(canvas, { preserveDrawingBuffer = false } = {
 function webglCanvasResize(renderer, width, height) {
   width = Math.max(1, Math.round(width));
   height = Math.max(1, Math.round(height));
-  if (renderer.canvas.width !== width) renderer.canvas.width = width;
-  if (renderer.canvas.height !== height) renderer.canvas.height = height;
-  renderer.canvas.style.width = `${width}px`;
-  renderer.canvas.style.height = `${height}px`;
-  renderer.canvas.style.maxWidth = "none";
-  renderer.canvas.style.maxHeight = "none";
+  const canvas = renderer.canvas;
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
+  const cssWidth = `${width}px`;
+  const cssHeight = `${height}px`;
+  if (canvas.style.width !== cssWidth) canvas.style.width = cssWidth;
+  if (canvas.style.height !== cssHeight) canvas.style.height = cssHeight;
+  if (canvas.style.maxWidth !== "none") canvas.style.maxWidth = "none";
+  if (canvas.style.maxHeight !== "none") canvas.style.maxHeight = "none";
   renderer.gl.viewport(0, 0, width, height);
 }
 
@@ -8748,18 +8961,12 @@ uniform float u_cropOverlayAlpha;
 in vec2 v_texCoord;
 in vec2 v_pixelCoord;
 out vec4 o_color;
-
-vec3 linearToSRGB(vec3 c) {
-  return mix(12.92 * c, 1.055 * pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
-}
+${LINEAR_TO_SRGB_GLSL}
+${ADJUST_COLOR_GLSL}
 
 void main() {
   vec3 color = texture(u_texture, v_texCoord).rgb;
-  color = (color - 0.18) * u_contrast + 0.18 + u_brightness;
-  float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
-  color = mix(vec3(luma), color, u_saturation);
-  color = pow(max(color, 0.0), vec3(1.0 / max(u_gamma, 0.001)));
-  color = clamp(color, 0.0, 1.0);
+  color = adjustColor(color, u_brightness, u_contrast, u_saturation, u_gamma);
   if (u_cropOverlayAlpha > 0.0) {
     bool insideCrop =
       v_pixelCoord.x >= u_cropRect.x &&
@@ -8839,6 +9046,10 @@ function createCRTOutputRenderer(canvas) {
   const gl = canvas.getContext("webgl2", { antialias: false, premultipliedAlpha: false });
   if (!gl) throw new Error("WebGL2 is not available for CRT output");
   if (!gl.getExtension("EXT_color_buffer_float")) throw new Error("EXT_color_buffer_float is not available for CRT output");
+  watchWebGLContextLoss(canvas, () => {
+    if (crtOutputRenderer && crtOutputRenderer.gl === gl) crtOutputRenderer = null;
+    if (crtFullscreenRenderer && crtFullscreenRenderer.gl === gl) crtFullscreenRenderer = null;
+  });
 
   const programBase = createGPUProgram(gl, CRT_VERTEX_GLSL, CRT_FRAGMENT_BASE_GLSL, "crt-base");
   gl.useProgram(programBase);
@@ -8861,6 +9072,7 @@ function createCRTOutputRenderer(canvas) {
   gl.uniform1i(gl.getUniformLocation(programCombine, "u_bloomVTexture"), 1);
   gl.uniformBlockBinding(programCombine, gl.getUniformBlockIndex(programCombine, "Settings"), CRT_UBO_BINDING_POINT);
 
+  // 26 floats of std140 payload (see CRT_UBO), padded to a 16-byte multiple.
   const uboData = new Float32Array(28);
   const uboBuffer = gl.createBuffer();
   gl.bindBuffer(gl.UNIFORM_BUFFER, uboBuffer);
@@ -8900,6 +9112,7 @@ function createCRTOutputRenderer(canvas) {
     displayAspect: 1,
     targetWidth: 0,
     targetHeight: 0,
+    targetSmoothBase: null,
   };
 }
 
@@ -9018,13 +9231,20 @@ function crtEnsureTargets(renderer, settings) {
   const targetHeight = border
     ? Math.max(1, Math.round(renderer.imageHeight + renderer.borderTop + renderer.borderBottom))
     : renderer.imageHeight;
-  if (targetWidth === renderer.targetWidth && targetHeight === renderer.targetHeight) return;
+  // The base target's texture filter depends on the CRT switch, so toggling
+  // it must recreate the targets even when the size is unchanged.
+  const smoothBase = !!settings.enabled;
+  if (targetWidth === renderer.targetWidth && targetHeight === renderer.targetHeight &&
+      smoothBase === renderer.targetSmoothBase) {
+    return;
+  }
   crtDeleteTargets(renderer);
   renderer.targetWidth = targetWidth;
   renderer.targetHeight = targetHeight;
+  renderer.targetSmoothBase = smoothBase;
   const bloomWidth = Math.max(1, Math.floor(targetWidth * CRT_BLOOM_SCALE));
   const bloomHeight = Math.max(1, Math.floor(targetHeight * CRT_BLOOM_SCALE));
-  renderer.texBase = crtCreateTexture(renderer, targetWidth, targetHeight, null, settings.enabled);
+  renderer.texBase = crtCreateTexture(renderer, targetWidth, targetHeight, null, smoothBase);
   renderer.fboBase = crtCreateFBO(renderer, renderer.texBase);
   renderer.texBloomX = crtCreateTexture(renderer, bloomWidth, bloomHeight, null, true);
   renderer.fboBloomX = crtCreateFBO(renderer, renderer.texBloomX);
@@ -9119,10 +9339,14 @@ function crtRender(renderer, shaderTime, settings = getCRTSettings()) {
     gl.canvas.width = viewportPixelWidth;
     gl.canvas.height = viewportPixelHeight;
   }
-  gl.canvas.style.width = `${viewportCssWidth}px`;
-  gl.canvas.style.height = `${viewportCssHeight}px`;
-  gl.canvas.style.maxWidth = "none";
-  gl.canvas.style.maxHeight = "none";
+  // Guard the style writes: this runs per animation frame when noise is on.
+  const cssWidth = `${viewportCssWidth}px`;
+  const cssHeight = `${viewportCssHeight}px`;
+  const style = gl.canvas.style;
+  if (style.width !== cssWidth) style.width = cssWidth;
+  if (style.height !== cssHeight) style.height = cssHeight;
+  if (style.maxWidth !== "none") style.maxWidth = "none";
+  if (style.maxHeight !== "none") style.maxHeight = "none";
 
   let drawCssX = 0;
   let drawCssY = 0;
@@ -9342,10 +9566,7 @@ ${CRT_SETTINGS_GLSL}
 
 in vec2 v_texCoord;
 out vec4 o_color;
-
-vec3 linearToSRGB(vec3 linear) {
-  return mix(12.92 * linear, 1.055 * pow(max(linear, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055, step(0.0031308, linear));
-}
+${LINEAR_TO_SRGB_GLSL}
 
 void main() {
   vec2 texCoord = vec2(v_texCoord.x, 1.0 - v_texCoord.y);
@@ -9410,11 +9631,14 @@ function hilbertOrder(width, height) {
     if (x < width && y < height) {
       out[o++] = x;
       out[o++] = y;
+      // Every in-rect point is visited exactly once; stop early instead of
+      // walking the rest of the padded power-of-2 curve.
+      if (o === out.length) break;
     }
   }
   hilbertOrderCacheWidth = width;
   hilbertOrderCacheHeight = height;
-  hilbertOrderCache = o === out.length ? out : out.subarray(0, o);
+  hilbertOrderCache = out;
   return hilbertOrderCache;
 }
 
@@ -9719,6 +9943,11 @@ function getBestAverageColorPair(out, pixels, width, bx, by, bw, bh, palette, co
       }
     }
   }
+  if (bestError === Infinity) {
+    // Fewer than two enabled colors: fall back to a solid block.
+    bestPaper = firstEnabledPaletteIndex(palette, colorMask);
+    bestInk = bestPaper;
+  }
 
   out[0] = bestPaper;
   out[1] = bestInk;
@@ -9792,7 +10021,7 @@ function initOutputTestPattern() {
     revision: activeOutputRevision,
   };
   binaryExportState = null;
-  renderConvertedPreview(convertedLinearPixels);
+  renderDisplayedOutput();
   setExportButtonsEnabled(false, currentMode);
   UI.statusText.textContent = "Ready. Load an image to begin.";
   UI.statusSize.textContent = "Preview 320x240";
